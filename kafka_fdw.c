@@ -1,12 +1,9 @@
 /*-------------------------------------------------------------------------
  *
- * file_fdw.c
- *		  foreign-data wrapper for server-side flat files.
+ * kafka_fdw.c
+ *		  foreign-data wrapper for access to Apache Kafka
  *
- * Copyright (c) 2010-2014, PostgreSQL Global Development Group
- *
- * IDENTIFICATION
- *		  contrib/file_fdw/file_fdw.c
+ * TODO: Copyright here
  *
  *-------------------------------------------------------------------------
  */
@@ -40,49 +37,31 @@ PG_MODULE_MAGIC;
 /*
  * Describes the valid options for objects that use this wrapper.
  */
-struct FileFdwOption
+struct KafkaFdwOption
 {
 	const char *optname;
 	Oid			optcontext;		/* Oid of catalog in which option may appear */
 };
 
 /*
- * Valid options for file_fdw.
- * These options are based on the options for the COPY FROM command.
- * But note that force_not_null and force_null are handled as boolean options
- * attached to a column, not as table options.
- *
- * Note: If you are adding new option for user mapping, you need to modify
- * fileGetOptions(), which currently doesn't bother to look at user mappings.
+ * Valid options for kafka_fdw.
  */
-static const struct FileFdwOption valid_options[] = {
-	/* File options */
-	{"filename", ForeignTableRelationId},
-
-	/* Format options */
-	/* oids option is not supported */
-	{"format", ForeignTableRelationId},
-	{"header", ForeignTableRelationId},
-	{"delimiter", ForeignTableRelationId},
-	{"quote", ForeignTableRelationId},
-	{"escape", ForeignTableRelationId},
-	{"null", ForeignTableRelationId},
-	{"encoding", ForeignTableRelationId},
-	{"force_not_null", AttributeRelationId},
-	{"force_null", AttributeRelationId},
-
-	/*
-	 * force_quote is not supported by file_fdw because it's for COPY TO.
-	 */
-
+static const struct KafkaFdwOption valid_options[] = {
+	/* Server-level options */
+	{"host", ForeignServerRelationId},
+	{"port", ForeignServerRelationId},
+	/* Table options */
+	{"topic", ForeignTableRelationId}
+	{"offset", ForeignTableRelationId}
 	/* Sentinel */
 	{NULL, InvalidOid}
 };
 
+// TODO: we do not need it, remove
 /*
  * FDW-specific information for RelOptInfo.fdw_private.
  */
-typedef struct FileFdwPlanState
+typedef struct kafkaFdwPlanState
 {
 	char	   *filename;		/* file to read */
 	List	   *options;		/* merged COPY options, excluding filename */
@@ -90,6 +69,7 @@ typedef struct FileFdwPlanState
 	double		ntuples;		/* estimate of number of rows in file */
 } FileFdwPlanState;
 
+// TODO: we do not need it, remove
 /*
  * FDW-specific information for ForeignScanState.fdw_state.
  */
@@ -103,30 +83,30 @@ typedef struct FileFdwExecutionState
 /*
  * SQL functions
  */
-PG_FUNCTION_INFO_V1(file_fdw_handler);
-PG_FUNCTION_INFO_V1(file_fdw_validator);
+PG_FUNCTION_INFO_V1(kafka_fdw_handler);
+PG_FUNCTION_INFO_V1(kafka_fdw_validator);
 
 /*
  * FDW callback routines
  */
-static void fileGetForeignRelSize(PlannerInfo *root,
+static void kafkaGetForeignRelSize(PlannerInfo *root,
 					  RelOptInfo *baserel,
 					  Oid foreigntableid);
-static void fileGetForeignPaths(PlannerInfo *root,
+static void kafkaGetForeignPaths(PlannerInfo *root,
 					RelOptInfo *baserel,
 					Oid foreigntableid);
-static ForeignScan *fileGetForeignPlan(PlannerInfo *root,
+static ForeignScan *kafkaGetForeignPlan(PlannerInfo *root,
 				   RelOptInfo *baserel,
 				   Oid foreigntableid,
 				   ForeignPath *best_path,
 				   List *tlist,
 				   List *scan_clauses);
-static void fileExplainForeignScan(ForeignScanState *node, ExplainState *es);
-static void fileBeginForeignScan(ForeignScanState *node, int eflags);
-static TupleTableSlot *fileIterateForeignScan(ForeignScanState *node);
-static void fileReScanForeignScan(ForeignScanState *node);
-static void fileEndForeignScan(ForeignScanState *node);
-static bool fileAnalyzeForeignTable(Relation relation,
+static void kafkaExplainForeignScan(ForeignScanState *node, ExplainState *es);
+static void kafkaBeginForeignScan(ForeignScanState *node, int eflags);
+static TupleTableSlot *kafkaIterateForeignScan(ForeignScanState *node);
+static void kafkaReScanForeignScan(ForeignScanState *node);
+static void kafkaEndForeignScan(ForeignScanState *node);
+static bool kafkaAnalyzeForeignTable(Relation relation,
 						AcquireSampleRowsFunc *func,
 						BlockNumber *totalpages);
 
@@ -134,18 +114,17 @@ static bool fileAnalyzeForeignTable(Relation relation,
  * Helper functions
  */
 static bool is_valid_option(const char *option, Oid context);
+// TODO: do we need it?
 static void fileGetOptions(Oid foreigntableid,
 			   char **filename, List **other_options);
-static List *get_file_fdw_attribute_options(Oid relid);
-static bool check_selective_binary_conversion(RelOptInfo *baserel,
-								  Oid foreigntableid,
-								  List **columns);
+// TODO: do we need it?
 static void estimate_size(PlannerInfo *root, RelOptInfo *baserel,
 			  FileFdwPlanState *fdw_private);
+// TODO: do we need it?
 static void estimate_costs(PlannerInfo *root, RelOptInfo *baserel,
 			   FileFdwPlanState *fdw_private,
 			   Cost *startup_cost, Cost *total_cost);
-static int file_acquire_sample_rows(Relation onerel, int elevel,
+static int kafka_acquire_sample_rows(Relation onerel, int elevel,
 						 HeapTuple *rows, int targrows,
 						 double *totalrows, double *totaldeadrows);
 
@@ -155,57 +134,35 @@ static int file_acquire_sample_rows(Relation onerel, int elevel,
  * to my callback routines.
  */
 Datum
-file_fdw_handler(PG_FUNCTION_ARGS)
+kafka_fdw_handler(PG_FUNCTION_ARGS)
 {
 	FdwRoutine *fdwroutine = makeNode(FdwRoutine);
 
-	fdwroutine->GetForeignRelSize = fileGetForeignRelSize;
-	fdwroutine->GetForeignPaths = fileGetForeignPaths;
-	fdwroutine->GetForeignPlan = fileGetForeignPlan;
-	fdwroutine->ExplainForeignScan = fileExplainForeignScan;
-	fdwroutine->BeginForeignScan = fileBeginForeignScan;
-	fdwroutine->IterateForeignScan = fileIterateForeignScan;
-	fdwroutine->ReScanForeignScan = fileReScanForeignScan;
-	fdwroutine->EndForeignScan = fileEndForeignScan;
-	fdwroutine->AnalyzeForeignTable = fileAnalyzeForeignTable;
+	fdwroutine->GetForeignRelSize   = kafkaGetForeignRelSize;
+	fdwroutine->GetForeignPaths     = kafkaGetForeignPaths;
+	fdwroutine->GetForeignPlan      = kafkaGetForeignPlan;
+	fdwroutine->ExplainForeignScan  = kafkaExplainForeignScan;
+	fdwroutine->BeginForeignScan    = kafkaBeginForeignScan;
+	fdwroutine->IterateForeignScan  = kafkaIterateForeignScan;
+	fdwroutine->ReScanForeignScan   = kafkaReScanForeignScan;
+	fdwroutine->EndForeignScan      = kafkaEndForeignScan;
+	fdwroutine->AnalyzeForeignTable = kafkaAnalyzeForeignTable;
 
 	PG_RETURN_POINTER(fdwroutine);
 }
 
 /*
  * Validate the generic options given to a FOREIGN DATA WRAPPER, SERVER,
- * USER MAPPING or FOREIGN TABLE that uses file_fdw.
+ * USER MAPPING or FOREIGN TABLE that uses kafka_fdw.
  *
  * Raise an ERROR if the option or its value is considered invalid.
  */
 Datum
-file_fdw_validator(PG_FUNCTION_ARGS)
+kafka_fdw_validator(PG_FUNCTION_ARGS)
 {
 	List	   *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 	Oid			catalog = PG_GETARG_OID(1);
-	char	   *filename = NULL;
-	DefElem    *force_not_null = NULL;
-	DefElem    *force_null = NULL;
-	List	   *other_options = NIL;
 	ListCell   *cell;
-
-	/*
-	 * Only superusers are allowed to set options of a file_fdw foreign table.
-	 * This is because the filename is one of those options, and we don't want
-	 * non-superusers to be able to determine which file gets read.
-	 *
-	 * Putting this sort of permissions check in a validator is a bit of a
-	 * crock, but there doesn't seem to be any other place that can enforce
-	 * the check more cleanly.
-	 *
-	 * Note that the valid_options[] array disallows setting filename at any
-	 * options level other than foreign table --- otherwise there'd still be a
-	 * security hole.
-	 */
-	if (catalog == ForeignTableRelationId && !superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("only superuser can change options of a file_fdw foreign table")));
 
 	/*
 	 * Check that only options supported by file_fdw, and allowed for the
@@ -240,63 +197,12 @@ file_fdw_validator(PG_FUNCTION_ARGS)
 							   buf.data)
 				  : errhint("There are no valid options in this context.")));
 		}
-
-		/*
-		 * Separate out filename and column-specific options, since
-		 * ProcessCopyOptions won't accept them.
-		 */
-
-		if (strcmp(def->defname, "filename") == 0)
-		{
-			if (filename)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options")));
-			filename = defGetString(def);
-		}
-
-		/*
-		 * force_not_null is a boolean option; after validation we can discard
-		 * it - it will be retrieved later in get_file_fdw_attribute_options()
-		 */
-		else if (strcmp(def->defname, "force_not_null") == 0)
-		{
-			if (force_not_null)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 errhint("option \"force_not_null\" supplied more than once for a column")));
-			force_not_null = def;
-			/* Don't care what the value is, as long as it's a legal boolean */
-			(void) defGetBoolean(def);
-		}
-		/* See comments for force_not_null above */
-		else if (strcmp(def->defname, "force_null") == 0)
-		{
-			if (force_null)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 errhint("option \"force_null\" supplied more than once for a column")));
-			force_null = def;
-			(void) defGetBoolean(def);
-		}
-		else
-			other_options = lappend(other_options, def);
 	}
 
-	/*
-	 * Now apply the core COPY code's validation logic for more checks.
-	 */
-	ProcessCopyOptions(NULL, true, other_options);
-
-	/*
-	 * Filename option is required for file_fdw foreign tables.
-	 */
-	if (catalog == ForeignTableRelationId && filename == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_FDW_DYNAMIC_PARAMETER_VALUE_NEEDED),
-				 errmsg("filename is required for file_fdw foreign tables")));
+	// TODO: check if offset fits uint64
+	// TODO: check if port fits uint16
+	// TODO: check if all options are set
+	// TODO: check if options are not duplicated
 
 	PG_RETURN_VOID();
 }
@@ -318,15 +224,13 @@ is_valid_option(const char *option, Oid context)
 	return false;
 }
 
+// TODO: do we need it?
 /*
  * Fetch the options for a file_fdw foreign table.
- *
- * We have to separate out "filename" from the other options because
- * it must not appear in the options list passed to the core COPY code.
  */
 static void
-fileGetOptions(Oid foreigntableid,
-			   char **filename, List **other_options)
+kafkaGetOptions(Oid foreigntableid,
+			    char **filename, List **other_options)
 {
 	ForeignTable *table;
 	ForeignServer *server;
@@ -379,83 +283,6 @@ fileGetOptions(Oid foreigntableid,
 		elog(ERROR, "filename is required for file_fdw foreign tables");
 
 	*other_options = options;
-}
-
-/*
- * Retrieve per-column generic options from pg_attribute and construct a list
- * of DefElems representing them.
- *
- * At the moment we only have "force_not_null", and "force_null",
- * which should each be combined into a single DefElem listing all such
- * columns, since that's what COPY expects.
- */
-static List *
-get_file_fdw_attribute_options(Oid relid)
-{
-	Relation	rel;
-	TupleDesc	tupleDesc;
-	AttrNumber	natts;
-	AttrNumber	attnum;
-	List	   *fnncolumns = NIL;
-	List	   *fncolumns = NIL;
-
-	List	   *options = NIL;
-
-	rel = heap_open(relid, AccessShareLock);
-	tupleDesc = RelationGetDescr(rel);
-	natts = tupleDesc->natts;
-
-	/* Retrieve FDW options for all user-defined attributes. */
-	for (attnum = 1; attnum <= natts; attnum++)
-	{
-		Form_pg_attribute attr = tupleDesc->attrs[attnum - 1];
-		List	   *options;
-		ListCell   *lc;
-
-		/* Skip dropped attributes. */
-		if (attr->attisdropped)
-			continue;
-
-		options = GetForeignColumnOptions(relid, attnum);
-		foreach(lc, options)
-		{
-			DefElem    *def = (DefElem *) lfirst(lc);
-
-			if (strcmp(def->defname, "force_not_null") == 0)
-			{
-				if (defGetBoolean(def))
-				{
-					char	   *attname = pstrdup(NameStr(attr->attname));
-
-					fnncolumns = lappend(fnncolumns, makeString(attname));
-				}
-			}
-			else if (strcmp(def->defname, "force_null") == 0)
-			{
-				if (defGetBoolean(def))
-				{
-					char	   *attname = pstrdup(NameStr(attr->attname));
-
-					fncolumns = lappend(fncolumns, makeString(attname));
-				}
-			}
-			/* maybe in future handle other options here */
-		}
-	}
-
-	heap_close(rel, AccessShareLock);
-
-	/*
-	 * Return DefElem only when some column(s) have force_not_null /
-	 * force_null options set
-	 */
-	if (fnncolumns != NIL)
-		options = lappend(options, makeDefElem("force_not_null", (Node *) fnncolumns));
-
-	if (fncolumns != NIL)
-		options = lappend(options, makeDefElem("force_null", (Node *) fncolumns));
-
-	return options;
 }
 
 /*
