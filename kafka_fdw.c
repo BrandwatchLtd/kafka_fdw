@@ -57,28 +57,47 @@ static const struct KafkaFdwOption valid_options[] = {
 	{NULL, InvalidOid}
 };
 
-// TODO: we do not need it, remove
+// TODO: we are going to store estimates here. To populate them we are going to read some number of tuples, write estimates and NOT commit the offset read.
 /*
  * FDW-specific information for RelOptInfo.fdw_private.
  */
-typedef struct kafkaFdwPlanState
+typedef struct KafkaFdwPlanState
 {
 	char	   *filename;		/* file to read */
 	List	   *options;		/* merged COPY options, excluding filename */
 	BlockNumber pages;			/* estimate of file's physical size */
 	double		ntuples;		/* estimate of number of rows in file */
-} FileFdwPlanState;
+} KafkaFdwPlanState;
 
-// TODO: we do not need it, remove
+// TODO: here we will store offset
 /*
  * FDW-specific information for ForeignScanState.fdw_state.
  */
-typedef struct FileFdwExecutionState
+typedef struct KafkaFdwExecutionState
 {
 	char	   *filename;		/* file to read */
 	List	   *options;		/* merged COPY options, excluding filename */
-	CopyState	cstate;			/* state of reading file */
-} FileFdwExecutionState;
+	CopyState	cstate;			/* state of reading file */	
+} KafkaFdwExecutionState;
+
+/*
+ * Global connection cache hashtable
+ */
+
+typedef struct ConnCacheKey
+{
+	char	   *host;
+	uint16      port;
+} ConnCacheKey;
+
+typedef struct ConnCacheEntry
+{
+	ConnCacheKey key;			/* hash key (must be first) */
+	// TODO: to store connection handle here
+	char zzz;
+}
+
+static HTAB *ConnectionHash = NULL;
 
 /*
  * SQL functions
@@ -115,8 +134,7 @@ static bool kafkaAnalyzeForeignTable(Relation relation,
  */
 static bool is_valid_option(const char *option, Oid context);
 // TODO: do we need it?
-static void fileGetOptions(Oid foreigntableid,
-			   char **filename, List **other_options);
+static void get_connection_and_topic(Oid foreigntableid, ConnCacheEntry *cache_entry, char **topic);
 // TODO: do we need it?
 static void estimate_size(PlannerInfo *root, RelOptInfo *baserel,
 			  FileFdwPlanState *fdw_private);
