@@ -51,8 +51,8 @@ static const struct KafkaFdwOption valid_options[] = {
     {"host", ForeignServerRelationId},
     {"port", ForeignServerRelationId},
     /* Table options */
-    {"topic", ForeignTableRelationId}
-    {"offset", ForeignTableRelationId}
+    {"topic", ForeignTableRelationId},
+    {"offset", ForeignTableRelationId},
     /* Sentinel */
     {NULL, InvalidOid}
 };
@@ -116,6 +116,13 @@ static bool kafkaAnalyzeForeignTable(
         BlockNumber *totalpages
     );
 
+static void estimate_costs(
+        PlannerInfo *root,
+        RelOptInfo *baserel,
+        Cost *startup_cost,
+        Cost *total_cost
+    );
+
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
  * to my callback routines.
@@ -128,12 +135,12 @@ kafka_fdw_handler(PG_FUNCTION_ARGS)
     fdwroutine->GetForeignRelSize   = kafkaGetForeignRelSize;
     fdwroutine->GetForeignPaths     = kafkaGetForeignPaths;
     fdwroutine->GetForeignPlan      = kafkaGetForeignPlan;
-    fdwroutine->ExplainForeignScan  = kafkaExplainForeignScan;
+    fdwroutine->ExplainForeignScan  = NULL;
     fdwroutine->BeginForeignScan    = kafkaBeginForeignScan;
     fdwroutine->IterateForeignScan  = kafkaIterateForeignScan;
     fdwroutine->ReScanForeignScan   = kafkaReScanForeignScan;
     fdwroutine->EndForeignScan      = kafkaEndForeignScan;
-    fdwroutine->AnalyzeForeignTable = kafkaAnalyzeForeignTable;
+    fdwroutine->AnalyzeForeignTable = NULL;
 
     PG_RETURN_POINTER(fdwroutine);
 }
@@ -161,6 +168,7 @@ static void kafkaGetForeignRelSize(
         Oid foreigntableid
     ) {
     // NOOP
+
     // The base estimate is the best available.
     // Making a kafka request to determine the number of values available is
     // excessive given that rows of a single unindexed column are going to be
@@ -186,7 +194,15 @@ static void kafkaGetForeignPaths(
         PlannerInfo *root,
         RelOptInfo *baserel,
         Oid foreigntableid
-    );
+    ) {
+    Cost startup_cost;
+    Cost total_cost;
+    Path *path;
+
+    estimate_costs(root, baserel, &startup_cost, &total_cost);
+    path = (Path *)create_foreignscan_path(root, baserel, baserel->rows, startup_cost, total_cost, NIL, NULL, NIL);
+    add_path(baserel, path);
+}
 
 /*
  * Create a ForeignScan plan node from the selected foreign access path. This
@@ -207,7 +223,9 @@ static ForeignScan *kafkaGetForeignPlan(
         ForeignPath *best_path,
         List *tlist,
         List *scan_clauses
-    );
+    ) {
+    return make_foreignscan(tlist, scan_clauses, baserel->relid, NULL, best_path->fdw_private);
+}
 
 /*
  * Print additional EXPLAIN output for a foreign table scan. This function can
@@ -222,7 +240,10 @@ static ForeignScan *kafkaGetForeignPlan(
 static void kafkaExplainForeignScan(
         ForeignScanState *node,
         ExplainState *es
-    );
+    ) {
+    // NOOP
+    // Included this for completeness but this table does not support explain.
+}
 
 /*
  * Begin executing a foreign scan. This is called during executor startup. It
@@ -243,7 +264,14 @@ static void kafkaExplainForeignScan(
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
-    );
+    ) {
+    // TODO: Implement this. This should establish the connection to kafka if it is not already available.
+
+    // Do nothing for EXPLAIN
+    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
+        return;
+    }
+}
 
 /*
  * Fetch one row from the foreign source, returning it in a tuple table slot
@@ -269,7 +297,10 @@ static void kafkaBeginForeignScan(
  */
 static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
-    );
+    ) {
+    // TODO: Implement this. A buffer of messages should be loaded from kafka and then read one row at a time.
+    return NULL;
+}
 
 /*
  * Restart the scan from the beginning. Note that any parameters the scan
@@ -278,7 +309,9 @@ static TupleTableSlot *kafkaIterateForeignScan(
  */
 static void kafkaReScanForeignScan(
         ForeignScanState *node
-    );
+    ) {
+    // TODO: Implement this. This should reset the buffer index.
+}
 
 /*
  * End the scan and release resources. It is normally not important to release
@@ -287,7 +320,9 @@ static void kafkaReScanForeignScan(
  */
 static void kafkaEndForeignScan(
         ForeignScanState *node
-    );
+    ) {
+    // TODO: Implement this. This should clear the index and the buffer.
+}
 
 /*
  * This function is called when ANALYZE is executed on a foreign table. If the
@@ -305,5 +340,36 @@ static bool kafkaAnalyzeForeignTable(
         Relation relation,
         AcquireSampleRowsFunc *func,
         BlockNumber *totalpages
-    );
+    ) {
+    // NOOP
+    // Included this for completeness but this table does not support analyze.
+    return false;
+}
 
+/*
+ * Estimate costs of scanning a foreign table.
+ *
+ * Results are returned in *startup_cost and *total_cost.
+ */
+static void estimate_costs(
+        PlannerInfo *root,
+        RelOptInfo *baserel,
+        Cost *startup_cost,
+        Cost *total_cost
+    ) {
+    BlockNumber pages = baserel->pages;
+    double ntuples = baserel->tuples;
+    Cost run_cost = 0;
+    Cost cpu_per_tuple;
+
+    /*
+     * We estimate costs almost the same way as cost_seqscan(), thus assuming
+     * that I/O costs are equivalent to a regular table file of the same size.
+     */
+    run_cost += seq_page_cost * pages;
+
+    *startup_cost = baserel->baserestrictcost.startup;
+    cpu_per_tuple = cpu_tuple_cost + baserel->baserestrictcost.per_tuple;
+    run_cost += cpu_per_tuple * ntuples;
+    *total_cost = *startup_cost + run_cost;
+}
