@@ -125,16 +125,185 @@ kafka_fdw_handler(PG_FUNCTION_ARGS)
 {
     FdwRoutine *fdwroutine = makeNode(FdwRoutine);
 
-    fdwroutine->GetForeignRelSize   = NULL;
+    fdwroutine->GetForeignRelSize   = kafkaGetForeignRelSize;
     fdwroutine->GetForeignPaths     = kafkaGetForeignPaths;
-    fdwroutine->GetForeignPlan      = NULL;
-    fdwroutine->ExplainForeignScan  = NULL;
+    fdwroutine->GetForeignPlan      = kafkaGetForeignPlan;
+    fdwroutine->ExplainForeignScan  = kafkaExplainForeignScan;
     fdwroutine->BeginForeignScan    = kafkaBeginForeignScan;
-    fdwroutine->IterateForeignScan  = NULL;
-    fdwroutine->ReScanForeignScan   = NULL;
+    fdwroutine->IterateForeignScan  = kafkaIterateForeignScan;
+    fdwroutine->ReScanForeignScan   = kafkaReScanForeignScan;
     fdwroutine->EndForeignScan      = kafkaEndForeignScan;
-    fdwroutine->AnalyzeForeignTable = NULL;
+    fdwroutine->AnalyzeForeignTable = kafkaAnalyzeForeignTable;
 
     PG_RETURN_POINTER(fdwroutine);
 }
+
+/*
+ * Obtain relation size estimates for a foreign table. This is called at the
+ * beginning of planning for a query that scans a foreign table. root is the
+ * planner's global information about the query; baserel is the planner's
+ * information about this table; and foreigntableid is the pg_class OID of the
+ * foreign table. (foreigntableid could be obtained from the planner data
+ * structures, but it's passed explicitly to save effort.)
+ *
+ * This function should update baserel->rows to be the expected number of rows
+ * returned by the table scan, after accounting for the filtering done by the
+ * restriction quals. The initial value of baserel->rows is just a constant
+ * default estimate, which should be replaced if at all possible. The function
+ * may also choose to update baserel->width if it can compute a better estimate
+ * of the average result row width.
+ *
+ * See Section 53.4 for additional information.
+ */
+static void kafkaGetForeignRelSize(
+        PlannerInfo *root,
+        RelOptInfo *baserel,
+        Oid foreigntableid
+    ) {
+    // NOOP
+    // The base estimate is the best available.
+    // Making a kafka request to determine the number of values available is
+    // excessive given that rows of a single unindexed column are going to be
+    // returned.
+}
+
+/*
+ * Create possible access paths for a scan on a foreign table. This is called
+ * during query planning. The parameters are the same as for GetForeignRelSize,
+ * which has already been called.
+ *
+ * This function must generate at least one access path (ForeignPath node) for
+ * a scan on the foreign table and must call add_path to add each such path to
+ * baserel->pathlist. It's recommended to use create_foreignscan_path to build
+ * the ForeignPath nodes. The function can generate multiple access paths,
+ * e.g., a path which has valid pathkeys to represent a pre-sorted result. Each
+ * access path must contain cost estimates, and can contain any FDW-private
+ * information that is needed to identify the specific scan method intended.
+ *
+ * See Section 53.4 for additional information.
+ */
+static void kafkaGetForeignPaths(
+        PlannerInfo *root,
+        RelOptInfo *baserel,
+        Oid foreigntableid
+    );
+
+/*
+ * Create a ForeignScan plan node from the selected foreign access path. This
+ * is called at the end of query planning. The parameters are as for
+ * GetForeignRelSize, plus the selected ForeignPath (previously produced by
+ * GetForeignPaths), the target list to be emitted by the plan node, and the
+ * restriction clauses to be enforced by the plan node.
+ *
+ * This function must create and return a ForeignScan plan node; it's
+ * recommended to use make_foreignscan to build the ForeignScan node.
+ *
+ * See Section 53.4 for additional information.
+ */
+static ForeignScan *kafkaGetForeignPlan(
+        PlannerInfo *root,
+        RelOptInfo *baserel,
+        Oid foreigntableid,
+        ForeignPath *best_path,
+        List *tlist,
+        List *scan_clauses
+    );
+
+/*
+ * Print additional EXPLAIN output for a foreign table scan. This function can
+ * call ExplainPropertyText and related functions to add fields to the EXPLAIN
+ * output. The flag fields in es can be used to determine what to print, and
+ * the state of the ForeignScanState node can be inspected to provide run-time
+ * statistics in the EXPLAIN ANALYZE case.
+ *
+ * If the ExplainForeignScan pointer is set to NULL, no additional information
+ * is printed during EXPLAIN.
+ */
+static void kafkaExplainForeignScan(
+        ForeignScanState *node,
+        ExplainState *es
+    );
+
+/*
+ * Begin executing a foreign scan. This is called during executor startup. It
+ * should perform any initialization needed before the scan can start, but not
+ * start executing the actual scan (that should be done upon the first call to
+ * IterateForeignScan). The ForeignScanState node has already been created, but
+ * its fdw_state field is still NULL. Information about the table to scan is
+ * accessible through the ForeignScanState node (in particular, from the
+ * underlying ForeignScan plan node, which contains any FDW-private information
+ * provided by GetForeignPlan). eflags contains flag bits describing the
+ * executor's operating mode for this plan node.
+ *
+ * Note that when (eflags & EXEC_FLAG_EXPLAIN_ONLY) is true, this function
+ * should not perform any externally-visible actions; it should only do the
+ * minimum required to make the node state valid for ExplainForeignScan and
+ * EndForeignScan.
+ */
+static void kafkaBeginForeignScan(
+        ForeignScanState *node,
+        int eflags
+    );
+
+/*
+ * Fetch one row from the foreign source, returning it in a tuple table slot
+ * (the node's ScanTupleSlot should be used for this purpose). Return NULL if
+ * no more rows are available. The tuple table slot infrastructure allows
+ * either a physical or virtual tuple to be returned; in most cases the latter
+ * choice is preferable from a performance standpoint. Note that this is called
+ * in a short-lived memory context that will be reset between invocations.
+ * Create a memory context in BeginForeignScan if you need longer-lived
+ * storage, or use the es_query_cxt of the node's EState.
+ *
+ * The rows returned must match the column signature of the foreign table being
+ * scanned. If you choose to optimize away fetching columns that are not
+ * needed, you should insert nulls in those column positions.
+ *
+ * Note that PostgreSQL's executor doesn't care whether the rows returned
+ * violate any NOT NULL constraints that were defined on the foreign table
+ * columns — but the planner does care, and may optimize queries incorrectly if
+ * NULL values are present in a column declared not to contain them. If a NULL
+ * value is encountered when the user has declared that none should be present,
+ * it may be appropriate to raise an error (just as you would need to do in the
+ * case of a data type mismatch).
+ */
+static TupleTableSlot *kafkaIterateForeignScan(
+        ForeignScanState *node
+    );
+
+/*
+ * Restart the scan from the beginning. Note that any parameters the scan
+ * depends on may have changed value, so the new scan does not necessarily
+ * return exactly the same rows.
+ */
+static void kafkaReScanForeignScan(
+        ForeignScanState *node
+    );
+
+/*
+ * End the scan and release resources. It is normally not important to release
+ * palloc'd memory, but for example open files and connections to remote
+ * servers should be cleaned up.
+ */
+static void kafkaEndForeignScan(
+        ForeignScanState *node
+    );
+
+/*
+ * This function is called when ANALYZE is executed on a foreign table. If the
+ * FDW can collect statistics for this foreign table, it should return true,
+ * and provide a pointer to a function that will collect sample rows from the
+ * table in func, plus the estimated size of the table in pages in totalpages.
+ * Otherwise, return false.
+ *
+ * If the FDW does not support collecting statistics for any tables, the
+ * AnalyzeForeignTable pointer can be set to NULL.
+ *
+ * If provided, the sample collection function must have the signature
+ */
+static bool kafkaAnalyzeForeignTable(
+        Relation relation,
+        AcquireSampleRowsFunc *func,
+        BlockNumber *totalpages
+    );
 
