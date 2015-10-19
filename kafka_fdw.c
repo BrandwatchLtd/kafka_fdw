@@ -66,7 +66,7 @@ typedef struct KafkaFdwPlanState
 	char	   *host;
 	uint16      port;
 	char       *topic;
-	unit64      offset;
+	int64       offset;
 } KafkaFdwPlanState;
 
 // TODO: here we will store offset
@@ -218,7 +218,7 @@ kafka_fdw_validator(PG_FUNCTION_ARGS)
 		}
 	}
 
-	// TODO: check if offset fits uint64
+	// TODO: check if offset fits int64
 	// TODO: check if port fits uint16
 	// TODO: check if all options are set
 	// TODO: check if options are not duplicated
@@ -250,6 +250,9 @@ is_valid_option(const char *option, Oid context)
 static void
 fill_plan_state(Oid foreigntableid, KafkaFdwPlanState *plan_state)
 {
+	// TODO: extract also the table structure?
+	// BTW We are going to support 2 columns only: data (text/json/whatever)
+	//                                             and kafka_offset (long)
 	ForeignTable *table;
 	ForeignServer *server;
 	ForeignDataWrapper *wrapper;
@@ -388,10 +391,22 @@ kafkaGetForeignPlan(PlannerInfo *root,
 }
 
 /*
- * Explain an uint64-valued property.
+ * Explain an int64-valued property.
  */
-void
-ExplainPropertyUint64(const char *qlabel, uint64 value, ExplainState *es)
+static void
+ExplainPropertyInt64(const char *qlabel, int64 value, ExplainState *es)
+{
+	char		buf[32];
+
+	snprintf(buf, sizeof(buf), "%ld", value);
+	ExplainProperty(qlabel, buf, true, es);
+}
+
+/*
+ * Explain a uint64-valued property.
+ */
+static void
+ExplainPropertyUint16(const char *qlabel, uint16 value, ExplainState *es)
 {
 	char		buf[32];
 
@@ -420,7 +435,7 @@ kafkaExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	ExplainPropertyText("Kafka", host_port.data, es);
 	
 	ExplainPropertyUint16("Host", fdw_private->host, es);
-	ExplainPropertyUint64("Offset", fdw_private->offset, es);
+	ExplainPropertyInt64("Offset", fdw_private->offset, es);
 	ExplainPropertyText("Kafka Topic", fdw_private->topic, es);
 }
 
@@ -480,6 +495,8 @@ fileBeginForeignScan(ForeignScanState *node, int eflags)
 static TupleTableSlot *
 fileIterateForeignScan(ForeignScanState *node)
 {
+	// TODO: here we would like to invoke InputFunctionCall with function depending on type
+
 	FileFdwExecutionState *festate = (FileFdwExecutionState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 	bool		found;
