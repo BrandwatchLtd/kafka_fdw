@@ -63,10 +63,10 @@ static const struct KafkaFdwOption valid_options[] = {
  */
 typedef struct KafkaFdwPlanState
 {
-	char	   *filename;		/* file to read */
-	List	   *options;		/* merged COPY options, excluding filename */
-	BlockNumber pages;			/* estimate of file's physical size */
-	double		ntuples;		/* estimate of number of rows in file */
+	char	   *host;
+	uint16      port;
+	char       *topic;
+	unit64      offset;
 } KafkaFdwPlanState;
 
 // TODO: here we will store offset
@@ -133,8 +133,9 @@ static bool kafkaAnalyzeForeignTable(Relation relation,
  * Helper functions
  */
 static bool is_valid_option(const char *option, Oid context);
-// TODO: do we need it?
-static void get_connection_and_topic(Oid foreigntableid, ConnCacheEntry *cache_entry, char **topic);
+static void fill_plan_state(Oid foreigntableid, 
+                            ConnCacheEntry *cache_entry, char **topic);
+
 // TODO: do we need it?
 static void estimate_size(PlannerInfo *root, RelOptInfo *baserel,
 			  FileFdwPlanState *fdw_private);
@@ -247,8 +248,7 @@ is_valid_option(const char *option, Oid context)
  * Fetch the options for a file_fdw foreign table.
  */
 static void
-kafkaGetOptions(Oid foreigntableid,
-			    char **filename, List **other_options)
+fill_plan_state(Oid foreigntableid, KafkaFdwPlanState *plan_state)
 {
 	ForeignTable *table;
 	ForeignServer *server;
@@ -258,12 +258,8 @@ kafkaGetOptions(Oid foreigntableid,
 			   *prev;
 
 	/*
-	 * Extract options from FDW objects.  We ignore user mappings because
-	 * file_fdw doesn't have any options that can be specified there.
-	 *
-	 * (XXX Actually, given the current contents of valid_options[], there's
-	 * no point in examining anything except the foreign table's own options.
-	 * Simplify?)
+	 * Extract options from FDW objects.  We ignore user mappings and attributes
+	 * because kafka_fdw doesn't have any options that can be specified there.
 	 */
 	table = GetForeignTable(foreigntableid);
 	server = GetForeignServer(table->serverid);
@@ -273,62 +269,53 @@ kafkaGetOptions(Oid foreigntableid,
 	options = list_concat(options, wrapper->options);
 	options = list_concat(options, server->options);
 	options = list_concat(options, table->options);
-	options = list_concat(options, get_file_fdw_attribute_options(foreigntableid));
 
 	/*
 	 * Separate out the filename.
 	 */
-	*filename = NULL;
-	prev = NULL;
 	foreach(lc, options)
 	{
 		DefElem    *def = (DefElem *) lfirst(lc);
-
-		if (strcmp(def->defname, "filename") == 0)
+		
+		if (strcmp(def->defname, "host") == 0)
 		{
-			*filename = defGetString(def);
-			options = list_delete_cell(options, lc, prev);
-			break;
+			plan_state->host = defGetString(def);
+		} else if (strcmp(def->defname, "port") == 0) {
+			/* already validated in kafka_fdw_validator() */
+			plan_state->port = atoi(defGetString(def));
+		} else if (strcmp(def->defname, "topic") == 0) {
+			plan_state->topic = defGetString(def);
+		} else if (strcmp(def->defname, "offset") == 0) {
+			/* already validated in kafka_fdw_validator() */
+			plan_state->offest = atoi(defGetString(def));
 		}
-		prev = lc;
 	}
-
-	/*
-	 * The validator should have checked that a filename was included in the
-	 * options, but check again, just in case.
-	 */
-	if (*filename == NULL)
-		elog(ERROR, "filename is required for file_fdw foreign tables");
-
-	*other_options = options;
 }
 
 /*
- * fileGetForeignRelSize
+ * kafkaGetForeignRelSize
  *		Obtain relation size estimates for a foreign table
  */
 static void
-fileGetForeignRelSize(PlannerInfo *root,
-					  RelOptInfo *baserel,
-					  Oid foreigntableid)
+kafkaGetForeignRelSize(PlannerInfo *root,
+					   RelOptInfo *baserel,
+					   Oid foreigntableid)
 {
 	FileFdwPlanState *fdw_private;
 
 	/*
-	 * Fetch options.  We only need filename at this point, but we might as
-	 * well get everything and not need to re-fetch it later in planning.
+	 * Fetch options
 	 */
-	fdw_private = (FileFdwPlanState *) palloc(sizeof(FileFdwPlanState));
-	fileGetOptions(foreigntableid,
-				   &fdw_private->filename, &fdw_private->options);
+	fdw_private = (FileFdwPlanState *) palloc(sizeof(KafkaFdwPlanState));
+	fill_plan_state(foreigntableid, &fdw_private);
 	baserel->fdw_private = (void *) fdw_private;
 
 	/* Estimate relation size */
-	estimate_size(root, baserel, fdw_private);
+	estimate_size(root, baserel);
 }
 
 /*
- * fileGetForeignPaths
+ * kafkaGetForeignPaths
  *		Create possible access paths for a scan on the foreign table
  *
  *		Currently we don't support any push-down feature, so there is only one
@@ -336,22 +323,15 @@ fileGetForeignRelSize(PlannerInfo *root,
  *		the data file.
  */
 static void
-fileGetForeignPaths(PlannerInfo *root,
-					RelOptInfo *baserel,
-					Oid foreigntableid)
+kafkaGetForeignPaths(PlannerInfo *root,
+					 RelOptInfo *baserel,
+					 Oid foreigntableid)
 {
-	FileFdwPlanState *fdw_private = (FileFdwPlanState *) baserel->fdw_private;
-	Cost		startup_cost;
-	Cost		total_cost;
-	List	   *columns;
-	List	   *coptions = NIL;
-
-	/* Decide whether to selectively perform binary conversion */
-	if (check_selective_binary_conversion(baserel,
-										  foreigntableid,
-										  &columns))
-		coptions = list_make1(makeDefElem("convert_selectively",
-										  (Node *) columns));
+	KafkaFdwPlanState *fdw_private = (KafkaFdwPlanState *) baserel->fdw_private;
+	Cost	           startup_cost;
+	Cost	           total_cost;
+	List	          *columns;
+	List	          *coptions = NIL;
 
 	/* Estimate costs */
 	estimate_costs(root, baserel, fdw_private,
@@ -369,26 +349,24 @@ fileGetForeignPaths(PlannerInfo *root,
 									 total_cost,
 									 NIL,		/* no pathkeys */
 									 NULL,		/* no outer rel either */
-									 coptions));
+									 NIL));
 
 	/*
-	 * If data file was sorted, and we knew it somehow, we could insert
-	 * appropriate pathkeys into the ForeignPath node to tell the planner
-	 * that.
+	 * if sort by offset is required we should have provided it for free
 	 */
 }
 
 /*
- * fileGetForeignPlan
+ * kafkaGetForeignPlan
  *		Create a ForeignScan plan node for scanning the foreign table
  */
 static ForeignScan *
-fileGetForeignPlan(PlannerInfo *root,
-				   RelOptInfo *baserel,
-				   Oid foreigntableid,
-				   ForeignPath *best_path,
-				   List *tlist,
-				   List *scan_clauses)
+kafkaGetForeignPlan(PlannerInfo *root,
+				    RelOptInfo *baserel,
+				    Oid foreigntableid,
+				    ForeignPath *best_path,
+				    List *tlist,
+				    List *scan_clauses)
 {
 	Index		scan_relid = baserel->relid;
 
@@ -406,34 +384,44 @@ fileGetForeignPlan(PlannerInfo *root,
 							scan_clauses,
 							scan_relid,
 							NIL,	/* no expressions to evaluate */
-							best_path->fdw_private);
+							NIL     /* no custom data */);
 }
 
 /*
- * fileExplainForeignScan
+ * Explain an uint64-valued property.
+ */
+void
+ExplainPropertyUint64(const char *qlabel, uint64 value, ExplainState *es)
+{
+	char		buf[32];
+
+	snprintf(buf, sizeof(buf), "%ld", value);
+	ExplainProperty(qlabel, buf, true, es);
+}
+
+/*
+ * kafkaExplainForeignScan
  *		Produce extra output for EXPLAIN
  */
 static void
-fileExplainForeignScan(ForeignScanState *node, ExplainState *es)
+kafkaExplainForeignScan(ForeignScanState *node, ExplainState *es)
 {
-	char	   *filename;
-	List	   *options;
+	FileFdwPlanState *fdw_private;
+	StringInfoData host_port;
 
-	/* Fetch options --- we only need filename at this point */
-	fileGetOptions(RelationGetRelid(node->ss.ss_currentRelation),
-				   &filename, &options);
-
-	ExplainPropertyText("Foreign File", filename, es);
-
-	/* Suppress file size if we're not showing cost details */
-	if (es->costs)
-	{
-		struct stat stat_buf;
-
-		if (stat(filename, &stat_buf) == 0)
-			ExplainPropertyLong("Foreign File Size", (long) stat_buf.st_size,
-								es);
-	}
+	/*
+	 * Fetch options
+	 */
+	fdw_private = (FileFdwPlanState *) palloc(sizeof(KafkaFdwPlanState));
+	fill_plan_state(foreigntableid, &fdw_private);
+	
+	initStringInfo(&host_port);
+	appendStringInfo(&host_port, '%s:%ld', fdw_private->host, fdw_private->port);
+	ExplainPropertyText("Kafka", host_port.data, es);
+	
+	ExplainPropertyUint16("Host", fdw_private->host, es);
+	ExplainPropertyUint64("Offset", fdw_private->offset, es);
+	ExplainPropertyText("Kafka Topic", fdw_private->topic, es);
 }
 
 /*

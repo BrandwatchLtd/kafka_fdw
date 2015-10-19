@@ -1,0 +1,6 @@
+Create a following C-language sql function:
+	kafka_fdw.unlink_foreign_table(table oid)
+It should close connection to kafka and remove all cached data, if any.
+To be fired by an event trigger on ALTER SERVER or DROP SERVER commands.
+
+TBC
