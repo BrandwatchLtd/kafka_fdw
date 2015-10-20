@@ -11,6 +11,8 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <librdkafka/rdkafka.h>
+#include <errno.h>
 
 #include "access/htup_details.h"
 #include "access/reloptions.h"
@@ -32,6 +34,8 @@
 #include "optimizer/var.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
+
+#define KAFKA_MAX_ERR_MSG 200
 
 PG_MODULE_MAGIC;
 
@@ -63,10 +67,11 @@ static const struct KafkaFdwOption valid_options[] = {
  */
 typedef struct KafkaFdwState
 {
-    char       *host;
-    uint16      port;
-    char       *topic;
-    int64       offset;
+	ConnCacheKey     connection_credentials;
+	ConnCacheEntry  *connection;
+    char            *topic;
+    int64            offset;
+    rd_kafka_topic_t kafka_topic_handle;
 } KafkaFdwState;
 
 /*
@@ -82,8 +87,7 @@ typedef struct ConnCacheKey
 typedef struct ConnCacheEntry
 {
 	ConnCacheKey key;			/* hash key (must be first) */
-	// TODO: to store connection handle here
-	char zzz;
+	rd_kafka_t kafka_handle;
 } ConnCacheEntry;
 
 //static HTAB *ConnectionHash = NULL;
@@ -140,6 +144,9 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     );
+    
+static ConnCacheEntry *get_connection();
+static void close_connection();
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
@@ -274,10 +281,10 @@ fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
 		
 		if (strcmp(def->defname, "host") == 0)
 		{
-			kstate->host = defGetString(def);
+			kstate->connection_credentials.host = defGetString(def);
 		} else if (strcmp(def->defname, "port") == 0) {
 			/* already validated in kafka_fdw_validator() */
-			kstate->port = atoi(defGetString(def));
+			kstate->connection_credentials.port = atoi(defGetString(def));
 		} else if (strcmp(def->defname, "topic") == 0) {
 			kstate->topic = defGetString(def);
 		} else if (strcmp(def->defname, "offset") == 0) {
@@ -285,6 +292,10 @@ fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
 			kstate->offset = atoi(defGetString(def));
 		}
 	}
+	
+	kstate->connection = NULL;
+	kstate->rd_kafka_topic_t = NULL;
+
 }
 
 /*
@@ -427,10 +438,18 @@ static void kafkaBeginForeignScan(
     
 	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
 	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
-	node->fdw_state = (void *) kstate;	
-
-    // TODO: Implement this.
-    // This should establish the connection to kafka if it is not already available.
+	node->fdw_state = (void *) kstate;
+	
+	/* Open connection if possible */
+	if (kstate->connection == NULL) {
+		kstate->connection = get_connection(kstate->connection_credentials);
+	}
+	
+	/* Create topic handle if successfully connected */
+	if (kstate->connection != NULL) {
+		/* We will check if it was successful in kafkaIterateForeignScan*/
+		kstate->rd_kafka_topic_t = rd_kafka_topic_new(kstate->connection, kstate->topic, NULL);
+	}
 }
 
 /*
@@ -458,6 +477,7 @@ static void kafkaBeginForeignScan(
 static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
     ) {
+		...
     // TODO: Implement this.
     // A buffer of messages should be loaded from kafka and then read one row at a time.
     return NULL;
@@ -487,6 +507,68 @@ static void kafkaEndForeignScan(
     // This should clear the index and the buffer.
 }
 
+
+static ConnCacheEntry *get_connection(ConnCacheKey key, char[KAFKA_MAX_ERR_MSG] errstr) {
+	ConnCacheEntry *entry;
+	bool            found;
+    StringInfoData  brokers;
+    char           *errstr;
+
+	if (ConnectionHash == NULL)
+	{
+		HASHCTL		ctl;
+
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(ConnCacheKey);
+		ctl.entrysize = sizeof(ConnCacheEntry);
+		ctl.hash = tag_hash;
+		/* allocate ConnectionHash in the cache context */
+		ctl.hcxt = CacheMemoryContext;
+		ConnectionHash = hash_create("kafka_fdw connections", 8,
+									 &ctl,
+								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+	}
+
+	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
+
+	if (!found)
+	{
+		/* initialize new hashtable entry (key is already filled in) */		
+		entry->kafka_handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
+					                       errstr, sizeof(errstr));
+		if (entry->kafka_handle != NULL) {
+			/* Add brokers */
+			initStringInfo(&brokers);
+			appendStringInfo(&brokers, '%s:%ld', key->host, key->port);
+			if (!(rd_kafka_brokers_add(entry->kafka_handle, host_port.data))) {
+				rd_kafka_destroy(entry->kafka_handle);
+				strcpy(errstr, "No valid brokers specified");
+			}
+			pfree(host_port.data);
+		}
+		if (entry->kafka_handle == NULL) {
+			hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
+			entry = NULL;
+		}
+	}
+	
+	return entry;
+}
+
+static void close_connection(ConnCacheKey key) {
+	ConnCacheEntry *entry;
+	bool            found;
+
+	if (ConnectionHash != NULL) {
+		entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
+		if (found) {
+			if (entry->kafka_handle != NULL) {
+				rd_kafka_destroy(entry->kafka_handle);
+			}
+			hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
+		}		
+	}
+}
 
 /*
  * Estimate costs of scanning a foreign table.
