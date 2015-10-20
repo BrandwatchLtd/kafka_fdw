@@ -16,6 +16,7 @@
 #include "access/reloptions.h"
 #include "access/sysattr.h"
 #include "catalog/pg_foreign_table.h"
+#include "catalog/pg_foreign_server.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
