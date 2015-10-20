@@ -200,7 +200,16 @@ static void kafkaGetForeignPaths(
     Path *path;
 
     estimate_costs(root, baserel, &startup_cost, &total_cost);
-    path = (Path *)create_foreignscan_path(root, baserel, baserel->rows, startup_cost, total_cost, NIL, NULL, NIL);
+    path = (Path *)create_foreignscan_path(
+           root,
+           baserel,
+           baserel->rows,
+           startup_cost,
+           total_cost,
+           NIL,
+           NULL,
+           NIL
+        );
     add_path(baserel, path);
 }
 
@@ -224,7 +233,13 @@ static ForeignScan *kafkaGetForeignPlan(
         List *tlist,
         List *scan_clauses
     ) {
-    return make_foreignscan(tlist, scan_clauses, baserel->relid, NULL, best_path->fdw_private);
+    return make_foreignscan(
+            tlist,
+            scan_clauses,
+            baserel->relid,
+            NULL,
+            best_path->fdw_private
+        );
 }
 
 /*
@@ -265,7 +280,8 @@ static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
     ) {
-    // TODO: Implement this. This should establish the connection to kafka if it is not already available.
+    // TODO: Implement this.
+    // This should establish the connection to kafka if it is not already available.
 
     // Do nothing for EXPLAIN
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
@@ -298,7 +314,8 @@ static void kafkaBeginForeignScan(
 static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
     ) {
-    // TODO: Implement this. A buffer of messages should be loaded from kafka and then read one row at a time.
+    // TODO: Implement this.
+    // A buffer of messages should be loaded from kafka and then read one row at a time.
     return NULL;
 }
 
@@ -310,7 +327,8 @@ static TupleTableSlot *kafkaIterateForeignScan(
 static void kafkaReScanForeignScan(
         ForeignScanState *node
     ) {
-    // TODO: Implement this. This should reset the buffer index.
+    // TODO: Implement this.
+    // This should reset the buffer index.
 }
 
 /*
@@ -321,7 +339,8 @@ static void kafkaReScanForeignScan(
 static void kafkaEndForeignScan(
         ForeignScanState *node
     ) {
-    // TODO: Implement this. This should clear the index and the buffer.
+    // TODO: Implement this.
+    // This should clear the index and the buffer.
 }
 
 /*
