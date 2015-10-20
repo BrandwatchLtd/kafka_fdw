@@ -2,3 +2,5 @@
 /log/
 /results/
 /tmp_check/
+kafka_fdw.o
+kafka_fdw.so
