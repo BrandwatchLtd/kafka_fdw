@@ -75,15 +75,15 @@ typedef struct KafkaFdwState
 
 typedef struct ConnCacheKey
 {
-	char	   *host;
-	uint16      port;
+    char       *host;
+    uint16      port;
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
 {
-	ConnCacheKey key;			/* hash key (must be first) */
-	// TODO: to store connection handle here
-	char zzz;
+    ConnCacheKey key;           /* hash key (must be first) */
+    // TODO: to store connection handle here
+    char zzz;
 } ConnCacheEntry;
 
 //static HTAB *ConnectionHash = NULL;
@@ -294,9 +294,9 @@ static void kafkaGetForeignPaths(
            NIL
         );
     add_path(baserel, path);
-	/*
-	 * if sort by offset is required we should have provided it for free
-	 */
+    /*
+     * if sort by offset is required we should have provided it for free
+     */
 }
 
 /*
@@ -313,29 +313,29 @@ static void kafkaGetForeignPaths(
  */
 static ForeignScan *
 kafkaGetForeignPlan(PlannerInfo *root,
-				    RelOptInfo *baserel,
-				    Oid foreigntableid,
-				    ForeignPath *best_path,
-				    List *tlist,
-				    List *scan_clauses)
+                    RelOptInfo *baserel,
+                    Oid foreigntableid,
+                    ForeignPath *best_path,
+                    List *tlist,
+                    List *scan_clauses)
 {
-	Index		scan_relid = baserel->relid;
+    Index       scan_relid = baserel->relid;
 
-	/*
-	 * We have no native ability to evaluate restriction clauses, so we just
-	 * put all the scan_clauses into the plan node's qual list for the
-	 * executor to check.  So all we have to do here is strip RestrictInfo
-	 * nodes from the clauses and ignore pseudoconstants (which will be
-	 * handled elsewhere).
-	 */
-	scan_clauses = extract_actual_clauses(scan_clauses, false);
+    /*
+     * We have no native ability to evaluate restriction clauses, so we just
+     * put all the scan_clauses into the plan node's qual list for the
+     * executor to check.  So all we have to do here is strip RestrictInfo
+     * nodes from the clauses and ignore pseudoconstants (which will be
+     * handled elsewhere).
+     */
+    scan_clauses = extract_actual_clauses(scan_clauses, false);
 
-	/* Create the ForeignScan node */
-	return make_foreignscan(tlist,
-							scan_clauses,
-							scan_relid,
-							NIL,	/* no expressions to evaluate */
-							NIL     /* no custom data */);
+    /* Create the ForeignScan node */
+    return make_foreignscan(tlist,
+                            scan_clauses,
+                            scan_relid,
+                            NIL,    /* no expressions to evaluate */
+                            NIL     /* no custom data */);
 }
 
 /*
@@ -357,17 +357,17 @@ kafkaGetForeignPlan(PlannerInfo *root,
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
-	) {
-	KafkaFdwState *kstate;
-	
+    ) {
+    KafkaFdwState *kstate;
+
     // Do nothing for EXPLAIN
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
         return;
     }
-    
-	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
-	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
-	node->fdw_state = (void *) kstate;	
+
+    kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
+    fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
+    node->fdw_state = (void *) kstate;
 
     // TODO: Implement this.
     // This should establish the connection to kafka if it is not already available.
@@ -439,7 +439,7 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     ) {
-	// TODO: maybe hardcode larger values here?
+    // TODO: maybe hardcode larger values here?
     BlockNumber pages = baserel->pages;
     double ntuples = baserel->tuples;
     Cost run_cost = 0;
