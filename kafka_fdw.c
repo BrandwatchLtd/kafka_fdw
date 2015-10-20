@@ -59,13 +59,34 @@ static const struct KafkaFdwOption valid_options[] = {
 };
 
 /*
- * FDW-specific information for ForeignScanState.fdw_state.
+ * FDW-specific information for ForeignScanState.fdw_state or RelOptInfo.fdw_private.
  */
-typedef struct KafkaFdwExecutionState
+typedef struct KafkaFdwState
 {
+    char       *host;
+    uint16      port;
     char       *topic;
-    List       *options;
-} KafkaFdwExecutionState;
+    int64       offset;
+} KafkaFdwState;
+
+/*
+ * Global connection cache hashtable
+ */
+
+typedef struct ConnCacheKey
+{
+	char	   *host;
+	uint16      port;
+} ConnCacheKey;
+
+typedef struct ConnCacheEntry
+{
+	ConnCacheKey key;			/* hash key (must be first) */
+	// TODO: to store connection handle here
+	char zzz;
+} ConnCacheEntry;
+
+//static HTAB *ConnectionHash = NULL;
 
 /*
  * SQL functions
@@ -236,6 +257,7 @@ static void kafkaGetForeignRelSize(
     // returned.
 }
 
+
 /*
  * Create possible access paths for a scan on a foreign table. This is called
  * during query planning. The parameters are the same as for GetForeignRelSize,
@@ -272,6 +294,9 @@ static void kafkaGetForeignPaths(
            NIL
         );
     add_path(baserel, path);
+	/*
+	 * if sort by offset is required we should have provided it for free
+	 */
 }
 
 /*
@@ -286,21 +311,31 @@ static void kafkaGetForeignPaths(
  *
  * See Section 53.4 for additional information.
  */
-static ForeignScan *kafkaGetForeignPlan(
-        PlannerInfo *root,
-        RelOptInfo *baserel,
-        Oid foreigntableid,
-        ForeignPath *best_path,
-        List *tlist,
-        List *scan_clauses
-    ) {
-    return make_foreignscan(
-            tlist,
-            scan_clauses,
-            baserel->relid,
-            NULL,
-            best_path->fdw_private
-        );
+static ForeignScan *
+kafkaGetForeignPlan(PlannerInfo *root,
+				    RelOptInfo *baserel,
+				    Oid foreigntableid,
+				    ForeignPath *best_path,
+				    List *tlist,
+				    List *scan_clauses)
+{
+	Index		scan_relid = baserel->relid;
+
+	/*
+	 * We have no native ability to evaluate restriction clauses, so we just
+	 * put all the scan_clauses into the plan node's qual list for the
+	 * executor to check.  So all we have to do here is strip RestrictInfo
+	 * nodes from the clauses and ignore pseudoconstants (which will be
+	 * handled elsewhere).
+	 */
+	scan_clauses = extract_actual_clauses(scan_clauses, false);
+
+	/* Create the ForeignScan node */
+	return make_foreignscan(tlist,
+							scan_clauses,
+							scan_relid,
+							NIL,	/* no expressions to evaluate */
+							NIL     /* no custom data */);
 }
 
 /*
@@ -322,14 +357,20 @@ static ForeignScan *kafkaGetForeignPlan(
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
-    ) {
-    // TODO: Implement this.
-    // This should establish the connection to kafka if it is not already available.
-
+	) {
+	KafkaFdwState *kstate;
+	
     // Do nothing for EXPLAIN
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
         return;
     }
+    
+	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
+	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
+	node->fdw_state = (void *) kstate;	
+
+    // TODO: Implement this.
+    // This should establish the connection to kafka if it is not already available.
 }
 
 /*
@@ -386,6 +427,7 @@ static void kafkaEndForeignScan(
     // This should clear the index and the buffer.
 }
 
+
 /*
  * Estimate costs of scanning a foreign table.
  *
@@ -397,6 +439,7 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     ) {
+	// TODO: maybe hardcode larger values here?
     BlockNumber pages = baserel->pages;
     double ntuples = baserel->tuples;
     Cost run_cost = 0;
