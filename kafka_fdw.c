@@ -108,6 +108,10 @@ static void kafkaEndForeignScan(
         ForeignScanState *node
     );
 
+static bool is_valid_option(
+        const char *option,
+        Oid context
+    );
 static void estimate_costs(
         PlannerInfo *root,
         RelOptInfo *baserel,
@@ -135,6 +139,71 @@ kafka_fdw_handler(PG_FUNCTION_ARGS)
     fdwroutine->AnalyzeForeignTable = NULL;
 
     PG_RETURN_POINTER(fdwroutine);
+}
+
+/*
+ * Validate the generic options given to a FOREIGN DATA WRAPPER, SERVER,
+ * USER MAPPING or FOREIGN TABLE that uses kafka_fdw.
+ *
+ * Raise an ERROR if the option or its value is considered invalid.
+ */
+Datum kafka_fdw_validator(PG_FUNCTION_ARGS) {
+   List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+   Oid catalog = PG_GETARG_OID(1);
+   ListCell *cell;
+
+   /*
+    * Check that only options supported by file_fdw, and allowed for the
+    * current object type, are given.
+    */
+   foreach(cell, options_list) {
+       DefElem *def = (DefElem *) lfirst(cell);
+
+       if (!is_valid_option(def->defname, catalog)) {
+           const struct KafkaFdwOption *opt;
+           StringInfoData buf;
+
+           /*
+            * Unknown option specified, complain about it. Provide a hint
+            * with list of valid options for the object.
+            */
+           initStringInfo(&buf);
+           for (opt = valid_options; opt->optname; opt++) {
+               if (catalog == opt->optcontext)
+                   appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
+                                    opt->optname);
+           }
+
+           ereport(ERROR,
+                   (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+                    errmsg("invalid option \"%s\"", def->defname),
+                    buf.len > 0
+                    ? errhint("Valid options in this context are: %s",
+                              buf.data)
+                 : errhint("There are no valid options in this context.")));
+       }
+   }
+
+   // TODO: check if offset fits uint64
+   // TODO: check if port fits uint16
+   // TODO: check if all options are set
+   // TODO: check if options are not duplicated
+
+   PG_RETURN_VOID();
+}
+
+/*
+ * Check if the provided option is one of the valid options.
+ * context is the Oid of the catalog holding the object the option is for.
+ */
+static bool is_valid_option(const char *option, Oid context) {
+   const struct KafkaFdwOption *opt;
+
+   for (opt = valid_options; opt->optname; opt++) {
+       if (context == opt->optcontext && strcmp(opt->optname, option) == 0)
+           return true;
+   }
+   return false;
 }
 
 /*
