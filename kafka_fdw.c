@@ -93,10 +93,6 @@ static ForeignScan *kafkaGetForeignPlan(
         List *tlist,
         List *scan_clauses
     );
-static void kafkaExplainForeignScan(
-        ForeignScanState *node,
-        ExplainState *es
-    );
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
@@ -109,11 +105,6 @@ static void kafkaReScanForeignScan(
     );
 static void kafkaEndForeignScan(
         ForeignScanState *node
-    );
-static bool kafkaAnalyzeForeignTable(
-        Relation relation,
-        AcquireSampleRowsFunc *func,
-        BlockNumber *totalpages
     );
 
 static void estimate_costs(
@@ -243,24 +234,6 @@ static ForeignScan *kafkaGetForeignPlan(
 }
 
 /*
- * Print additional EXPLAIN output for a foreign table scan. This function can
- * call ExplainPropertyText and related functions to add fields to the EXPLAIN
- * output. The flag fields in es can be used to determine what to print, and
- * the state of the ForeignScanState node can be inspected to provide run-time
- * statistics in the EXPLAIN ANALYZE case.
- *
- * If the ExplainForeignScan pointer is set to NULL, no additional information
- * is printed during EXPLAIN.
- */
-static void kafkaExplainForeignScan(
-        ForeignScanState *node,
-        ExplainState *es
-    ) {
-    // NOOP
-    // Included this for completeness but this table does not support explain.
-}
-
-/*
  * Begin executing a foreign scan. This is called during executor startup. It
  * should perform any initialization needed before the scan can start, but not
  * start executing the actual scan (that should be done upon the first call to
@@ -341,28 +314,6 @@ static void kafkaEndForeignScan(
     ) {
     // TODO: Implement this.
     // This should clear the index and the buffer.
-}
-
-/*
- * This function is called when ANALYZE is executed on a foreign table. If the
- * FDW can collect statistics for this foreign table, it should return true,
- * and provide a pointer to a function that will collect sample rows from the
- * table in func, plus the estimated size of the table in pages in totalpages.
- * Otherwise, return false.
- *
- * If the FDW does not support collecting statistics for any tables, the
- * AnalyzeForeignTable pointer can be set to NULL.
- *
- * If provided, the sample collection function must have the signature
- */
-static bool kafkaAnalyzeForeignTable(
-        Relation relation,
-        AcquireSampleRowsFunc *func,
-        BlockNumber *totalpages
-    ) {
-    // NOOP
-    // Included this for completeness but this table does not support analyze.
-    return false;
 }
 
 /*
