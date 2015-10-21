@@ -96,6 +96,7 @@ typedef struct KafkaFdwState
     rd_kafka_message_t  **buffer;
     ssize_t				  buffer_count;
     ssize_t				  buffer_cursor;
+    bool                  is_explain;
 } KafkaFdwState;
 
 /*
@@ -446,15 +447,18 @@ static void kafkaBeginForeignScan(
     KafkaFdwState *kstate;
     char           kafka_errstr[KAFKA_MAX_ERR_MSG];
 
-    // Do nothing for EXPLAIN
-    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
-        return;
-    }
-    
 	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
 	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
 	node->fdw_state = (void *) kstate;
 	
+    // Do nothing for EXPLAIN
+    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
+		kstate->is_explain = TRUE;
+        return;
+    }
+    
+    kstate->is_explain = FALSE;
+
 	/* Open connection if possible */
 	if (kstate->connection == NULL) {
 		kstate->connection = get_connection(kstate->connection_credentials, kafka_errstr);
@@ -601,8 +605,13 @@ static void kafkaEndForeignScan(
         ForeignScanState *node
     ) {
     KafkaFdwState      *kstate;
-	
+    
 	kstate = node->fdw_state;
+
+    if (kstate->is_explain){
+		return;
+	}
+	
 	pfree(kstate->buffer);
 	rd_kafka_consume_stop(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA);
 	rd_kafka_topic_destroy(kstate->kafka_topic_handle);
