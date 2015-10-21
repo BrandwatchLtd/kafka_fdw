@@ -11,8 +11,8 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
-#include <librdkafka/rdkafka.h>
 #include <errno.h>
+#include <librdkafka/rdkafka.h>
 
 #include "access/htup_details.h"
 #include "access/reloptions.h"
@@ -25,6 +25,7 @@
 #include "commands/vacuum.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
+#include "fmgr.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
@@ -297,8 +298,9 @@ fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
 		}
 	}
 	
+	kstate->connection = NULL;
+
 	// TODO: remove this
-	//kstate->connection = NULL;
 	//kstate->rd_kafka_topic_t = NULL;
 	//kstate->buffer = NULL;
 	//kstate->buffer_count = 0;
@@ -464,7 +466,7 @@ static void kafkaBeginForeignScan(
 			 errdetail("%s", kafka_errstr))
 		);
 	}
-	
+
 	/* Create topic handle */
 	kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, NULL);
 	if (kstate->kafka_topic_handle == NULL) {
@@ -490,7 +492,7 @@ static void kafkaBeginForeignScan(
 	}
 	PG_END_TRY();
 	
-	kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * kstate->batch_size);;
+	kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * (kstate->batch_size));
 	kstate->buffer_count = 0;
 	kstate->buffer_cursor = 0;
 }
@@ -542,7 +544,7 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		}
 		kstate->buffer_cursor = 0;
 	}
-	
+
 	/* If we have any data */
 	if (kstate->buffer_count < kstate->buffer_cursor) {
 		message = kstate->buffer[kstate->buffer_cursor];
@@ -574,6 +576,7 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		rd_kafka_message_destroy(message);
 		kstate->buffer_cursor++;
 	}
+
     return NULL;
 }
 
