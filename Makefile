@@ -15,8 +15,12 @@ SHLIB_LINK += -lrdkafka
 
 TEST_LIBRARY_OBJECTS = tests/tap/basic.h tests/tap/basic.o tests/tap/float.h tests/tap/float.o tests/tap/macros.h
 
-test : tests/kafka_fdw.t.o
+test : build-tests
+	runtests -b tests -s tests -l tests/TESTS
+
+build-tests : tests/kafka_fdw.t.o
 	${CC} -I. -o tests/kafka_fdw-t tests/kafka_fdw.t.o $(TEST_LIBRARY_OBJECTS)
+
 
 tests/kafka_fdw.t.o : $(TEST_LIBRARY_OBJECTS)
 
