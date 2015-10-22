@@ -1,5 +1,8 @@
 postgres:
-  name: kafka_fdw
+  container_name: kafka_fdw
   build: .
   ports:
     - "5432:5432"
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: password
