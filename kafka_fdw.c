@@ -444,9 +444,10 @@ static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
     ) {
-    KafkaFdwState *kstate;
-    char           kafka_errstr[KAFKA_MAX_ERR_MSG];
-
+    KafkaFdwState         *kstate;
+    char                   kafka_errstr[KAFKA_MAX_ERR_MSG];
+	rd_kafka_topic_conf_t *topic_conf;
+    
 	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
 	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
 	node->fdw_state = (void *) kstate;
@@ -472,7 +473,8 @@ static void kafkaBeginForeignScan(
 	}
 
 	/* Create topic handle */
-	kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, NULL);
+	topic_conf = rd_kafka_topic_conf_new();
+	kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, topic_conf);
 	if (kstate->kafka_topic_handle == NULL) {
 		ereport(ERROR,
 			(errcode(ERRCODE_FDW_ERROR),
@@ -535,41 +537,16 @@ static TupleTableSlot *kafkaIterateForeignScan(
 
 	kstate = node->fdw_state;
 	//slot = node->ss.ss_ScanTupleSlot;
-
-			ereport(WARNING,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("foo 50"))
-			);
 	/* Request more messages if we have already returned all the remaining ones */
 	if (kstate->buffer_count >= kstate->buffer_cursor) {
-			ereport(WARNING,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("foo 60"))
-			);
 		kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/, 1000, kstate->buffer, kstate->batch_size);
-			ereport(WARNING,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("foo 70 %d %d", kstate->buffer_count, kstate->batch_size))
-			);
 		if (kstate->buffer_count == -1) {
 			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
-			ereport(ERROR,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("kafka_fdw: error on rd_kafka_consume_batch call"))
-			);
 		}
 		kstate->buffer_cursor = 0;
 	}
 	/* If we have any data */
-			ereport(WARNING,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("foo 100 %d %d", kstate->buffer_count, kstate->buffer_cursor))
-			);
-	if (kstate->buffer_count < kstate->buffer_cursor) {
-			ereport(WARNING,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("foo 110"))
-			);
+	if (kstate->buffer_cursor < kstate->buffer_count) {
 		message = kstate->buffer[kstate->buffer_cursor];
 	    //
 	    //rd_kafka_resp_err_t err;   /* Non-zero for error signaling. */
@@ -599,7 +576,6 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		rd_kafka_message_destroy(message);
 		kstate->buffer_cursor++;
 	}
-
     return NULL;
 }
 
@@ -644,6 +620,8 @@ static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ER
 	bool             found;
     StringInfoData   brokers;
 	rd_kafka_conf_t *conf;
+	
+	// TODO: retry if needed, specify timeout policy
 
 	if (ConnectionHash == NULL)
 	{
@@ -666,13 +644,17 @@ static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ER
 	{
 		/* initialize new hashtable entry (key is already filled in) */		
 		conf = rd_kafka_conf_new();
-		entry->kafka_handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
+		// TODO: tune this value
+		// rd_kafka_conf_set(conf, "queued.min.messages", "1", NULL, 0);
+		
+		entry->kafka_handle = rd_kafka_new(RD_KAFKA_CONSUMER, conf,
 					                       errstr, KAFKA_MAX_ERR_MSG);
 		if (entry->kafka_handle != NULL) {
 			/* Add brokers */
 			initStringInfo(&brokers);
 			appendStringInfo(&brokers, "%s:%d", key.host, key.port);
-			if (!(rd_kafka_brokers_add(entry->kafka_handle, brokers.data))) {
+			/* Check if exactly 1 broker was added */
+			if (rd_kafka_brokers_add(entry->kafka_handle, brokers.data) != 1) {
 				rd_kafka_destroy(entry->kafka_handle);
 				strcpy(errstr, "No valid brokers specified");
 			}
@@ -681,9 +663,9 @@ static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ER
 		if (entry->kafka_handle == NULL) {
 			hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
 			entry = NULL;
-		}
+		}		
 	}
-	
+
 	return entry;
 }
 
@@ -730,3 +712,5 @@ static void estimate_costs(
     run_cost += cpu_per_tuple * ntuples;
     *total_cost = *startup_cost + run_cost;
 }
+
+
