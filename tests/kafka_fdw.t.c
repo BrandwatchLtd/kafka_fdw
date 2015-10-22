@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <tests/tap/basic.h>
+#include "kafka_fdw.c"
 
 int main(void) {
     plan(4);
@@ -11,4 +12,9 @@ int main(void) {
     skip("a skipped test");
 
     return 0;
+}
+
+void test_estimate_costs() {
+    Cost startup_cost;
+    Cost total_cost;
 }
