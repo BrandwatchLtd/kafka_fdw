@@ -483,7 +483,7 @@ static void kafkaBeginForeignScan(
 	/* Start consuming */
 	PG_TRY();
 	{
-		if (rd_kafka_consume_start(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, kstate->offset)){
+		if (rd_kafka_consume_start(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/, kstate->offset)){
 			ereport(ERROR,
 				(errcode(ERRCODE_FDW_ERROR),
 				errmsg_internal("kafka_fdw: Unable to start consuming from offset %ld", kstate->offset))
@@ -536,9 +536,21 @@ static TupleTableSlot *kafkaIterateForeignScan(
 	kstate = node->fdw_state;
 	//slot = node->ss.ss_ScanTupleSlot;
 
+			ereport(WARNING,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal("foo 50"))
+			);
 	/* Request more messages if we have already returned all the remaining ones */
 	if (kstate->buffer_count >= kstate->buffer_cursor) {
-		kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, 1000, kstate->buffer, kstate->batch_size);
+			ereport(WARNING,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal("foo 60"))
+			);
+		kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/, 1000, kstate->buffer, kstate->batch_size);
+			ereport(WARNING,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal("foo 70 %d %d", kstate->buffer_count, kstate->batch_size))
+			);
 		if (kstate->buffer_count == -1) {
 			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
 			ereport(ERROR,
@@ -548,9 +560,16 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		}
 		kstate->buffer_cursor = 0;
 	}
-
 	/* If we have any data */
+			ereport(WARNING,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal("foo 100 %d %d", kstate->buffer_count, kstate->buffer_cursor))
+			);
 	if (kstate->buffer_count < kstate->buffer_cursor) {
+			ereport(WARNING,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal("foo 110"))
+			);
 		message = kstate->buffer[kstate->buffer_cursor];
 	    //
 	    //rd_kafka_resp_err_t err;   /* Non-zero for error signaling. */
@@ -613,7 +632,7 @@ static void kafkaEndForeignScan(
 	}
 	
 	pfree(kstate->buffer);
-	rd_kafka_consume_stop(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA);
+	rd_kafka_consume_stop(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/);
 	rd_kafka_topic_destroy(kstate->kafka_topic_handle);
 
     // TODO: Implement this.

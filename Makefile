@@ -9,8 +9,6 @@ REGRESS = kafka_fdw
 SHLIB_LINK += $(filter -lz -lpthread -lrt, $(LIBS))
 SHLIB_LINK += -lrdkafka
 
-CFLAGS="$CFLAGS -g"
-
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
