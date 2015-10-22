@@ -75,8 +75,8 @@ typedef struct ConnCacheKey
 
 typedef struct ConnCacheEntry
 {
-	ConnCacheKey key;			/* hash key (must be first) */
-	rd_kafka_t  *kafka_handle;
+    ConnCacheKey key;           /* hash key (must be first) */
+    rd_kafka_t  *kafka_handle;
 } ConnCacheEntry;
 
 static HTAB *ConnectionHash = NULL;
@@ -86,15 +86,15 @@ static HTAB *ConnectionHash = NULL;
  */
 typedef struct KafkaFdwState
 {
-	ConnCacheKey          connection_credentials;
-	ConnCacheEntry       *connection;
+    ConnCacheKey          connection_credentials;
+    ConnCacheEntry       *connection;
     char                 *topic;
     int64                 offset;
     size_t                batch_size;
     rd_kafka_topic_t     *kafka_topic_handle;
     rd_kafka_message_t  **buffer;
-    ssize_t				  buffer_count;
-    ssize_t				  buffer_cursor;
+    ssize_t               buffer_count;
+    ssize_t               buffer_cursor;
 } KafkaFdwState;
 
 /*
@@ -151,7 +151,7 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     );
-    
+
 static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]);
 
 static void close_connection(ConnCacheKey key);
@@ -251,58 +251,58 @@ static bool is_valid_option(const char *option, Oid context) {
 static void
 fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
 {
-	// TODO: extract also the table structure?
-	// BTW We are going to support 2 columns only: data (text/json/whatever)
-	//                                             and kafka_offset (long)
-	ForeignTable *table;
-	ForeignServer *server;
-	ForeignDataWrapper *wrapper;
-	List	   *options;
-	ListCell   *lc;
+    // TODO: extract also the table structure?
+    // BTW We are going to support 2 columns only: data (text/json/whatever)
+    //                                             and kafka_offset (long)
+    ForeignTable *table;
+    ForeignServer *server;
+    ForeignDataWrapper *wrapper;
+    List       *options;
+    ListCell   *lc;
 
-	/*
-	 * Extract options from FDW objects.  We ignore user mappings and attributes
-	 * because kafka_fdw doesn't have any options that can be specified there.
-	 */
-	table = GetForeignTable(foreigntableid);
-	server = GetForeignServer(table->serverid);
-	wrapper = GetForeignDataWrapper(server->fdwid);
+    /*
+     * Extract options from FDW objects.  We ignore user mappings and attributes
+     * because kafka_fdw doesn't have any options that can be specified there.
+     */
+    table = GetForeignTable(foreigntableid);
+    server = GetForeignServer(table->serverid);
+    wrapper = GetForeignDataWrapper(server->fdwid);
 
-	options = NIL;
-	options = list_concat(options, wrapper->options);
-	options = list_concat(options, server->options);
-	options = list_concat(options, table->options);
+    options = NIL;
+    options = list_concat(options, wrapper->options);
+    options = list_concat(options, server->options);
+    options = list_concat(options, table->options);
 
-	/*
-	 * Separate out the filename.
-	 */
-	foreach(lc, options)
-	{
-		DefElem    *def = (DefElem *) lfirst(lc);
-		
-		if (strcmp(def->defname, "host") == 0)
-		{
-			kstate->connection_credentials.host = defGetString(def);
-		} else if (strcmp(def->defname, "port") == 0) {
-			/* already validated in kafka_fdw_validator() */
-			kstate->connection_credentials.port = atoi(defGetString(def));
-		} else if (strcmp(def->defname, "topic") == 0) {
-			kstate->topic = defGetString(def);
-		} else if (strcmp(def->defname, "offset") == 0) {
-			/* already validated in kafka_fdw_validator() */
-			kstate->offset = atoi(defGetString(def));
-		} else if (strcmp(def->defname, "batch_size") == 0) {
-			/* already validated in kafka_fdw_validator() */
-			kstate->batch_size = atoi(defGetString(def));
-		}
-	}
-	
-	// TODO: remove this
-	//kstate->connection = NULL;
-	//kstate->rd_kafka_topic_t = NULL;
-	//kstate->buffer = NULL;
-	//kstate->buffer_count = 0;
-	//kstate->buffer_cursor = 0;
+    /*
+     * Separate out the filename.
+     */
+    foreach(lc, options)
+    {
+        DefElem    *def = (DefElem *) lfirst(lc);
+
+        if (strcmp(def->defname, "host") == 0)
+        {
+            kstate->connection_credentials.host = defGetString(def);
+        } else if (strcmp(def->defname, "port") == 0) {
+            /* already validated in kafka_fdw_validator() */
+            kstate->connection_credentials.port = atoi(defGetString(def));
+        } else if (strcmp(def->defname, "topic") == 0) {
+            kstate->topic = defGetString(def);
+        } else if (strcmp(def->defname, "offset") == 0) {
+            /* already validated in kafka_fdw_validator() */
+            kstate->offset = atoi(defGetString(def));
+        } else if (strcmp(def->defname, "batch_size") == 0) {
+            /* already validated in kafka_fdw_validator() */
+            kstate->batch_size = atoi(defGetString(def));
+        }
+    }
+
+    // TODO: remove this
+    //kstate->connection = NULL;
+    //kstate->rd_kafka_topic_t = NULL;
+    //kstate->buffer = NULL;
+    //kstate->buffer_count = 0;
+    //kstate->buffer_cursor = 0;
 }
 
 /*
@@ -327,7 +327,7 @@ static void kafkaGetForeignRelSize(
         RelOptInfo *baserel,
         Oid foreigntableid
     ) {
-	// TODO: maybe we should return some large value here to avoid misplanning
+    // TODO: maybe we should return some large value here to avoid misplanning
     // NOOP
 
     // The base estimate is the best available.
@@ -361,7 +361,7 @@ static void kafkaGetForeignPaths(
     Cost total_cost;
     Path *path;
 
-	// TODO: fail here or in kafkaGetForeignPlan if table structure is wrong
+    // TODO: fail here or in kafkaGetForeignPlan if table structure is wrong
 
     estimate_costs(root, baserel, &startup_cost, &total_cost);
     path = (Path *)create_foreignscan_path(
@@ -402,7 +402,7 @@ kafkaGetForeignPlan(PlannerInfo *root,
 {
     Index       scan_relid = baserel->relid;
 
-	// TODO: fail here or in kafkaGetForeignPaths if table structure is wrong
+    // TODO: fail here or in kafkaGetForeignPaths if table structure is wrong
 
     /*
      * We have no native ability to evaluate restriction clauses, so we just
@@ -448,51 +448,51 @@ static void kafkaBeginForeignScan(
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
         return;
     }
-    
-	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
-	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
-	node->fdw_state = (void *) kstate;
-	
-	/* Open connection if possible */
-	if (kstate->connection == NULL) {
-		kstate->connection = get_connection(kstate->connection_credentials, kafka_errstr);
-	}
-	if (kstate->connection == NULL) {
-		ereport(ERROR,
-			(errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
-			 errmsg_internal("kafka_fdw: Unable to connect to %s:%d", kstate->connection_credentials.host, kstate->connection_credentials.port),
-			 errdetail("%s", kafka_errstr))
-		);
-	}
-	
-	/* Create topic handle */
-	kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, NULL);
-	if (kstate->kafka_topic_handle == NULL) {
-		ereport(ERROR,
-			(errcode(ERRCODE_FDW_ERROR),
-			 errmsg_internal("kafka_fdw: Unable to create topic %s", kstate->topic))
-		);
-	}
-	
-	/* Start consuming */
-	PG_TRY();
-	{
-		if (rd_kafka_consume_start(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, kstate->offset)){
-			ereport(ERROR,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("kafka_fdw: Unable to start consuming from offset %ld", kstate->offset))
-			);
-		}
-	}
-	PG_CATCH();
-	{
-		rd_kafka_topic_destroy(kstate->kafka_topic_handle);
-	}
-	PG_END_TRY();
-	
-	kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * kstate->batch_size);;
-	kstate->buffer_count = 0;
-	kstate->buffer_cursor = 0;
+
+    kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
+    fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
+    node->fdw_state = (void *) kstate;
+
+    /* Open connection if possible */
+    if (kstate->connection == NULL) {
+        kstate->connection = get_connection(kstate->connection_credentials, kafka_errstr);
+    }
+    if (kstate->connection == NULL) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
+             errmsg_internal("kafka_fdw: Unable to connect to %s:%d", kstate->connection_credentials.host, kstate->connection_credentials.port),
+             errdetail("%s", kafka_errstr))
+        );
+    }
+
+    /* Create topic handle */
+    kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, NULL);
+    if (kstate->kafka_topic_handle == NULL) {
+        ereport(ERROR,
+            (errcode(ERRCODE_FDW_ERROR),
+             errmsg_internal("kafka_fdw: Unable to create topic %s", kstate->topic))
+        );
+    }
+
+    /* Start consuming */
+    PG_TRY();
+    {
+        if (rd_kafka_consume_start(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, kstate->offset)){
+            ereport(ERROR,
+                (errcode(ERRCODE_FDW_ERROR),
+                errmsg_internal("kafka_fdw: Unable to start consuming from offset %ld", kstate->offset))
+            );
+        }
+    }
+    PG_CATCH();
+    {
+        rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+    }
+    PG_END_TRY();
+
+    kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * kstate->batch_size);;
+    kstate->buffer_count = 0;
+    kstate->buffer_cursor = 0;
 }
 
 /*
@@ -521,59 +521,59 @@ static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
     ) {
     KafkaFdwState      *kstate;
-	rd_kafka_message_t *message;
-	//TupleTableSlot     *slot;
+    rd_kafka_message_t *message;
+    //TupleTableSlot     *slot;
 
-	// TODO: this is temporary
-	char *payload;
+    // TODO: this is temporary
+    char *payload;
 
-	kstate = node->fdw_state;
-	//slot = node->ss.ss_ScanTupleSlot;
+    kstate = node->fdw_state;
+    //slot = node->ss.ss_ScanTupleSlot;
 
-	/* Request more messages if we have already returned all the remaining ones */
-	if (kstate->buffer_count >= kstate->buffer_cursor) {
-		kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, 1000, kstate->buffer, kstate->batch_size);
-		if (kstate->buffer_count == -1) {
-			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
-			ereport(ERROR,
-				(errcode(ERRCODE_FDW_ERROR),
-				errmsg_internal("kafka_fdw: error on rd_kafka_consume_batch call"))
-			);
-		}
-		kstate->buffer_cursor = 0;
-	}
-	
-	/* If we have any data */
-	if (kstate->buffer_count < kstate->buffer_cursor) {
-		message = kstate->buffer[kstate->buffer_cursor];
-	    //
-	    //rd_kafka_resp_err_t err;   /* Non-zero for error signaling. */
-	    //rd_kafka_topic_t *rkt;     /* Topic */
-	    //int32_t partition;         /* Partition */
-	    //void   *payload;           /* err==0: Message payload
-	    //			    * err!=0: Error string */
-	    //size_t  len;               /* err==0: Message payload length
-	    //			    * err!=0: Error string length */
-	    //void   *key;               /* err==0: Optional message key */
-	    //size_t  key_len;           /* err==0: Optional message key length */
-	    //int64_t offset;            /* Message offset (or offset for error
-	    //			    * if err!=0 if applicable). */
-	    //void  *_private;           /
-	    
-	    // TODO: begin placholder
-		payload = palloc(message->len + sizeof(char));
-		memcpy((void *)payload, message->payload, message->len);
-		payload[message->len] = 0;
-				
-		ereport(WARNING,
-			(errcode(ERRCODE_FDW_ERROR),
-			errmsg_internal("got message: %s", payload))
-		);
-	    // TODO: end placholder
-		
-		rd_kafka_message_destroy(message);
-		kstate->buffer_cursor++;
-	}
+    /* Request more messages if we have already returned all the remaining ones */
+    if (kstate->buffer_count >= kstate->buffer_cursor) {
+        kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, 1000, kstate->buffer, kstate->batch_size);
+        if (kstate->buffer_count == -1) {
+            rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+            ereport(ERROR,
+                (errcode(ERRCODE_FDW_ERROR),
+                errmsg_internal("kafka_fdw: error on rd_kafka_consume_batch call"))
+            );
+        }
+        kstate->buffer_cursor = 0;
+    }
+
+    /* If we have any data */
+    if (kstate->buffer_count < kstate->buffer_cursor) {
+        message = kstate->buffer[kstate->buffer_cursor];
+        //
+        //rd_kafka_resp_err_t err;   /* Non-zero for error signaling. */
+        //rd_kafka_topic_t *rkt;     /* Topic */
+        //int32_t partition;         /* Partition */
+        //void   *payload;           /* err==0: Message payload
+        //              * err!=0: Error string */
+        //size_t  len;               /* err==0: Message payload length
+        //              * err!=0: Error string length */
+        //void   *key;               /* err==0: Optional message key */
+        //size_t  key_len;           /* err==0: Optional message key length */
+        //int64_t offset;            /* Message offset (or offset for error
+        //              * if err!=0 if applicable). */
+        //void  *_private;           /
+
+        // TODO: begin placholder
+        payload = palloc(message->len + sizeof(char));
+        memcpy((void *)payload, message->payload, message->len);
+        payload[message->len] = 0;
+
+        ereport(WARNING,
+            (errcode(ERRCODE_FDW_ERROR),
+            errmsg_internal("got message: %s", payload))
+        );
+        // TODO: end placholder
+
+        rd_kafka_message_destroy(message);
+        kstate->buffer_cursor++;
+    }
     return NULL;
 }
 
@@ -598,77 +598,77 @@ static void kafkaEndForeignScan(
         ForeignScanState *node
     ) {
     KafkaFdwState      *kstate;
-	
-	kstate = node->fdw_state;
-	pfree(kstate->buffer);
-	rd_kafka_consume_stop(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA);
-	rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+
+    kstate = node->fdw_state;
+    pfree(kstate->buffer);
+    rd_kafka_consume_stop(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA);
+    rd_kafka_topic_destroy(kstate->kafka_topic_handle);
 
     // TODO: Implement this.
     // This should clear the index and the buffer.
 }
 
 static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]) {
-	ConnCacheEntry  *entry;
-	bool             found;
+    ConnCacheEntry  *entry;
+    bool             found;
     StringInfoData   brokers;
-	rd_kafka_conf_t *conf;
+    rd_kafka_conf_t *conf;
 
-	if (ConnectionHash == NULL)
-	{
-		HASHCTL		ctl;
+    if (ConnectionHash == NULL)
+    {
+        HASHCTL     ctl;
 
-		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(ConnCacheKey);
-		ctl.entrysize = sizeof(ConnCacheEntry);
-		ctl.hash = tag_hash;
-		/* allocate ConnectionHash in the cache context */
-		ctl.hcxt = CacheMemoryContext;
-		ConnectionHash = hash_create("kafka_fdw connections", 8,
-									 &ctl,
-								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
-	}
+        MemSet(&ctl, 0, sizeof(ctl));
+        ctl.keysize = sizeof(ConnCacheKey);
+        ctl.entrysize = sizeof(ConnCacheEntry);
+        ctl.hash = tag_hash;
+        /* allocate ConnectionHash in the cache context */
+        ctl.hcxt = CacheMemoryContext;
+        ConnectionHash = hash_create("kafka_fdw connections", 8,
+                                     &ctl,
+                                   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+    }
 
-	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
+    entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
 
-	if (!found)
-	{
-		/* initialize new hashtable entry (key is already filled in) */		
-		conf = rd_kafka_conf_new();
-		entry->kafka_handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
-					                       errstr, KAFKA_MAX_ERR_MSG);
-		if (entry->kafka_handle != NULL) {
-			/* Add brokers */
-			initStringInfo(&brokers);
-			appendStringInfo(&brokers, "%s:%d", key.host, key.port);
-			if (!(rd_kafka_brokers_add(entry->kafka_handle, brokers.data))) {
-				rd_kafka_destroy(entry->kafka_handle);
-				strcpy(errstr, "No valid brokers specified");
-			}
-			pfree(brokers.data);
-		}
-		if (entry->kafka_handle == NULL) {
-			hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
-			entry = NULL;
-		}
-	}
-	
-	return entry;
+    if (!found)
+    {
+        /* initialize new hashtable entry (key is already filled in) */
+        conf = rd_kafka_conf_new();
+        entry->kafka_handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
+                                           errstr, KAFKA_MAX_ERR_MSG);
+        if (entry->kafka_handle != NULL) {
+            /* Add brokers */
+            initStringInfo(&brokers);
+            appendStringInfo(&brokers, "%s:%d", key.host, key.port);
+            if (!(rd_kafka_brokers_add(entry->kafka_handle, brokers.data))) {
+                rd_kafka_destroy(entry->kafka_handle);
+                strcpy(errstr, "No valid brokers specified");
+            }
+            pfree(brokers.data);
+        }
+        if (entry->kafka_handle == NULL) {
+            hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
+            entry = NULL;
+        }
+    }
+
+    return entry;
 }
 
 static void close_connection(ConnCacheKey key) {
-	ConnCacheEntry *entry;
-	bool            found;
+    ConnCacheEntry *entry;
+    bool            found;
 
-	if (ConnectionHash != NULL) {
-		entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
-		if (found) {
-			if (entry->kafka_handle != NULL) {
-				rd_kafka_destroy(entry->kafka_handle);
-			}
-			hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
-		}		
-	}
+    if (ConnectionHash != NULL) {
+        entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
+        if (found) {
+            if (entry->kafka_handle != NULL) {
+                rd_kafka_destroy(entry->kafka_handle);
+            }
+            hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
+        }
+    }
 }
 
 /*
