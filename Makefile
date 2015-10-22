@@ -12,3 +12,8 @@ PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 SHLIB_LINK += $(filter -lz -lpthread -lrt, $(LIBS))
 SHLIB_LINK += -lrdkafka
+
+test : tests/test_kafka_fdw.o
+
+clean :
+	rm tests/test_kafka_fdw.o
