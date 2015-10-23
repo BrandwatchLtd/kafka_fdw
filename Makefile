@@ -1,3 +1,5 @@
+kafka_fdw.o: CFLAGS += -Wno-switch
+
 MODULE_big = kafka_fdw
 OBJS = kafka_fdw.o
 
