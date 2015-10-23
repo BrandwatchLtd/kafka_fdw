@@ -194,11 +194,13 @@ static bool is_valid_option(
         Oid context
     );
 
-static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]);
+static ConnCacheEntry *get_connection(ConnCacheKey key,
+                                      char errstr[KAFKA_MAX_ERR_MSG]);
 static void close_connection(ConnCacheKey key);
 static void kafka_start(KafkaFdwState *kstate);
 static void kafka_stop(KafkaFdwState *kstate);
-
+static void fill_pg_column_info(Relation foreignTableRelation,
+                              ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT]);
 static void estimate_costs(
         PlannerInfo *root,
         RelOptInfo *baserel,
@@ -297,20 +299,20 @@ static bool is_valid_option(const char *option, Oid context) {
  * Fetch the options for a file_fdw foreign table.
  */
 static void
-fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
+fill_kafka_state(Relation foreignTableRelation, KafkaFdwState *kstate)
 {
 	// TODO: extract also the table structure in order to report wrong column names/types earlier?
-	ForeignTable *table;
-	ForeignServer *server;
+	ForeignTable       *table;
+	ForeignServer      *server;
 	ForeignDataWrapper *wrapper;
-	List	   *options;
-	ListCell   *lc;
+	List	           *options;
+	ListCell           *lc;
 
     /*
      * Extract options from FDW objects.  We ignore user mappings and attributes
      * because kafka_fdw doesn't have any options that can be specified there.
      */
-    table = GetForeignTable(foreigntableid);
+    table = GetForeignTable(RelationGetRelid(foreignTableRelation));
     server = GetForeignServer(table->serverid);
     wrapper = GetForeignDataWrapper(server->fdwid);
 
@@ -486,13 +488,6 @@ static void kafkaBeginForeignScan(
     char                   kafka_errstr[KAFKA_MAX_ERR_MSG];
 	rd_kafka_topic_conf_t *topic_conf;
     
-	TupleDesc          tupDesc;
-	int                num_phys_attrs;
-	int                attnum;
-	Form_pg_attribute  attr;	
-	ValidColumnNameKey valid_column_name_key;
-	Oid                pg_in_func_oid;
-	
     /* Do nothing for EXPLAIN */
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
 		kstate = NULL;
@@ -501,65 +496,19 @@ static void kafkaBeginForeignScan(
 	
 	/* Initialize internal state */
 	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
-	fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
+	fill_kafka_state(node->ss.ss_currentRelation, kstate);
 	node->fdw_state = (void *) kstate;
 	
 	/*
 	 * Init PostgreSQL-related stuff
 	 */
-	tupDesc = RelationGetDescr(node->ss.ss_currentRelation);
-	num_phys_attrs = tupDesc->natts;
-
-	/* Place -1 values: this means the columns are not yet found in the table */
-	for (valid_column_name_key = 0; 
-	     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
-	     valid_column_name_key++)
-	{
-		kstate->columnInfo[valid_column_name_key].attnum = -1;
-	}
-
-	for (attnum = 0; attnum < num_phys_attrs; attnum++)
-	{
-		attr = tupDesc->attrs[attnum];
-		
-		/* We don't need info for dropped attributes */
-		if (attr->attisdropped)
-			continue;
-		
-		/* Find out if current column is in the list of allowed ones */
-		for (valid_column_name_key = 0; 
-		     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT; 
-		     valid_column_name_key++) {
-			if (strcmp(attr->attname.data,
-			    validColumnInfo[valid_column_name_key].name) == 0) {
-				break;
-			}
-		}
-		
-		/* Raise exception if not found */
-		if (valid_column_name_key == VALID_COLUMNS_NAMES_COUNT) {
-			// TODO: ereport here
-		}
-		
-		/* Raise exception if the type is wrong */
-		if (validColumnInfo[valid_column_name_key].type != attr->atttypid) {
-			// TODO: ereport here
-		}
-		
-		kstate->columnInfo[valid_column_name_key].attnum = attnum;
-		
-		/* Get proper input function for the column type */
-		getTypeBinaryInputInfo(attr->atttypid, &pg_in_func_oid,
-					&kstate->columnInfo[valid_column_name_key].typioparam);
-		fmgr_info(pg_in_func_oid,
-		            &kstate->columnInfo[valid_column_name_key].pg_in_func);
-	}
+	fill_pg_column_info(node->ss.ss_currentRelation, kstate->columnInfo);
 	
     /*
      * Init Kafka-related stuff
      */
-	/* Open connection if possible */
 
+	/* Open connection if possible */
 	if (kstate->connection == NULL) {
 		kstate->connection = get_connection(kstate->connection_credentials, 
 		                                                         kafka_errstr);
@@ -646,48 +595,59 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		kstate->buffer_cursor = 0;
 	}
 
-	/* If have any data */
-	if (kstate->buffer_cursor < kstate->buffer_count) {	
-		message = kstate->buffer[kstate->buffer_cursor];
-		if (message->err != RD_KAFKA_RESP_ERR_NO_ERROR) {
-			// TODO: report some error (stored in payload)
-		}
-		
-		/* Copy data returned by kafka to a postgres-readable format */		
-		for (valid_column_name_key = 0; 
-			 valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
-			 valid_column_name_key++)
-		{
-			columnInfo = &kstate->columnInfo[valid_column_name_key];
-			if (columnInfo->attnum != -1) {
-				initStringInfo(&columnData);
-				switch (valid_column_name_key) {
-					case KAFKA_OFFSET:
-						pq_sendint64(&columnData, message->offset);
-						break;
-					case KAFKA_KEY:
-						appendBinaryStringInfo(&columnData, 
-						              (char *)(message->key), message->key_len);
-						break;
-					case KAFKA_VALUE:
-						appendBinaryStringInfo(&columnData, 
-						              (char *)(message->payload), message->len);
-				}
-				slot->tts_values[columnInfo->attnum] = 
-				        ReceiveFunctionCall(&columnInfo->pg_in_func,
-				        					&columnData,
-				        					columnInfo->typioparam,
-				        					columnInfo->atttypmod);
-				slot->tts_isnull[columnInfo->attnum] = false;
-				pfree(columnData.data);
-			};
-		}
-		ExecStoreVirtualTuple(slot);
-		
-		rd_kafka_message_destroy(message);
-		kstate->buffer_cursor++;
+	/* Still no data */
+	if (kstate->buffer_cursor >= kstate->buffer_count) {
+		return slot;
 	}
 	
+	message = kstate->buffer[kstate->buffer_cursor];
+	
+	/* This also means there is no data */
+	if (message->err == RD_KAFKA_RESP_ERR__PARTITION_EOF) {
+		ereport(NOTICE,
+			(errcode(ERRCODE_FDW_ERROR),
+			errmsg_internal("kafka_fdw: end of the queue was reached"))
+		);
+		return slot;
+	}
+	
+	if (message->err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+		// TODO: report some error (stored in payload)
+	}
+		
+	/* Copy data returned by kafka to a postgres-readable format */		
+	for (valid_column_name_key = 0; 
+		 valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
+		 valid_column_name_key++)
+	{
+		columnInfo = &kstate->columnInfo[valid_column_name_key];
+		if (columnInfo->attnum != -1) {
+			initStringInfo(&columnData);
+			switch (valid_column_name_key) {
+				case KAFKA_OFFSET:
+					pq_sendint64(&columnData, message->offset);
+					break;
+				case KAFKA_KEY:
+					appendBinaryStringInfo(&columnData, 
+					              (char *)(message->key), message->key_len);
+					break;
+				case KAFKA_VALUE:
+					appendBinaryStringInfo(&columnData, 
+					              (char *)(message->payload), message->len);
+			}
+			slot->tts_values[columnInfo->attnum] = 
+			        ReceiveFunctionCall(&columnInfo->pg_in_func,
+			        					&columnData,
+			        					columnInfo->typioparam,
+			        					columnInfo->atttypmod);
+			slot->tts_isnull[columnInfo->attnum] = false;
+			pfree(columnData.data);
+		};
+	}
+	ExecStoreVirtualTuple(slot);
+	
+	rd_kafka_message_destroy(message);
+	kstate->buffer_cursor++;
 	return slot;
 }
 
@@ -826,6 +786,63 @@ static void kafka_start(KafkaFdwState *kstate) {
 
 static void kafka_stop(KafkaFdwState *kstate) {
 	rd_kafka_consume_stop(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/);
+}
+
+static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT]) {
+	TupleDesc          tupDesc;
+	int                num_phys_attrs;
+	int                attnum;
+	Form_pg_attribute  attr;	
+	ValidColumnNameKey valid_column_name_key;
+	Oid                pg_in_func_oid;
+	
+	tupDesc = RelationGetDescr(foreignTableRelation);
+	num_phys_attrs = tupDesc->natts;
+
+	/* Place -1 values: this means the columns are not yet found in the table */
+	for (valid_column_name_key = 0; 
+	     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
+	     valid_column_name_key++)
+	{
+		columnInfo[valid_column_name_key].attnum = -1;
+	}
+
+	for (attnum = 0; attnum < num_phys_attrs; attnum++)
+	{
+		attr = tupDesc->attrs[attnum];
+		
+		/* We don't need info for dropped attributes */
+		if (attr->attisdropped)
+			continue;
+		
+		/* Find out if current column is in the list of allowed ones */
+		for (valid_column_name_key = 0; 
+		     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT; 
+		     valid_column_name_key++) {
+			if (strcmp(attr->attname.data,
+			    validColumnInfo[valid_column_name_key].name) == 0) {
+				break;
+			}
+		}
+		
+		/* Raise exception if not found */
+		if (valid_column_name_key == VALID_COLUMNS_NAMES_COUNT) {
+			// TODO: ereport here
+		}
+		
+		/* Raise exception if the type is wrong */
+		if (validColumnInfo[valid_column_name_key].type != attr->atttypid) {
+			// TODO: ereport here
+		}
+		
+		columnInfo[valid_column_name_key].attnum = attnum;
+		
+		/* Get proper input function for the column type */
+		getTypeBinaryInputInfo(attr->atttypid, &pg_in_func_oid,
+					&columnInfo[valid_column_name_key].typioparam);
+		fmgr_info(pg_in_func_oid,
+		            &columnInfo[valid_column_name_key].pg_in_func);
+	}
 }
 
 /*
