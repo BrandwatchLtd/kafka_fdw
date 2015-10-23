@@ -11,8 +11,8 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
 #include <librdkafka/rdkafka.h>
+#include <errno.h>
 
 #include "access/htup_details.h"
 #include "access/reloptions.h"
@@ -100,8 +100,8 @@ typedef struct ConnCacheKey
 
 typedef struct ConnCacheEntry
 {
-	ConnCacheKey key;			/* hash key (must be first) */
-	rd_kafka_t  *kafka_handle;
+    ConnCacheKey key;           /* hash key (must be first) */
+    rd_kafka_t  *kafka_handle;
 } ConnCacheEntry;
 
 static HTAB *ConnectionHash = NULL;
@@ -120,15 +120,15 @@ typedef struct ColumnInfo
  
 typedef struct KafkaFdwState
 {
-	ConnCacheKey          connection_credentials;
-	ConnCacheEntry       *connection;
+    ConnCacheKey          connection_credentials;
+    ConnCacheEntry       *connection;
     char                 *topic;
     int64                 offset;
     size_t                batch_size;
     rd_kafka_topic_t     *kafka_topic_handle;
     rd_kafka_message_t  **buffer;
-    ssize_t				  buffer_count;
-    ssize_t				  buffer_cursor;
+    ssize_t               buffer_count;
+    ssize_t               buffer_cursor;
     bool                  is_explain;
     ColumnInfo			  columnInfo[VALID_COLUMNS_NAMES_COUNT];
 } KafkaFdwState;
@@ -187,7 +187,7 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     );
-    
+
 static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]);
 
 static void close_connection(ConnCacheKey key);
@@ -293,18 +293,18 @@ fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
 	List	   *options;
 	ListCell   *lc;
 
-	/*
-	 * Extract options from FDW objects.  We ignore user mappings and attributes
-	 * because kafka_fdw doesn't have any options that can be specified there.
-	 */
-	table = GetForeignTable(foreigntableid);
-	server = GetForeignServer(table->serverid);
-	wrapper = GetForeignDataWrapper(server->fdwid);
+    /*
+     * Extract options from FDW objects.  We ignore user mappings and attributes
+     * because kafka_fdw doesn't have any options that can be specified there.
+     */
+    table = GetForeignTable(foreigntableid);
+    server = GetForeignServer(table->serverid);
+    wrapper = GetForeignDataWrapper(server->fdwid);
 
-	options = NIL;
-	options = list_concat(options, wrapper->options);
-	options = list_concat(options, server->options);
-	options = list_concat(options, table->options);
+    options = NIL;
+    options = list_concat(options, wrapper->options);
+    options = list_concat(options, server->options);
+    options = list_concat(options, table->options);
 
 	/*
 	 * Separate out the filename.
@@ -361,7 +361,7 @@ static void kafkaGetForeignRelSize(
         RelOptInfo *baserel,
         Oid foreigntableid
     ) {
-	// TODO: maybe we should return some large value here to avoid misplanning
+    // TODO: maybe we should return some large value here to avoid misplanning
     // NOOP
 
     // The base estimate is the best available.
@@ -395,7 +395,7 @@ static void kafkaGetForeignPaths(
     Cost total_cost;
     Path *path;
 
-	// TODO: fail here or in kafkaGetForeignPlan if table structure is wrong
+    // TODO: fail here or in kafkaGetForeignPlan if table structure is wrong
 
     estimate_costs(root, baserel, &startup_cost, &total_cost);
     path = (Path *)create_foreignscan_path(
@@ -436,7 +436,7 @@ kafkaGetForeignPlan(PlannerInfo *root,
 {
     Index       scan_relid = baserel->relid;
 
-	// TODO: fail here or in kafkaGetForeignPaths if table structure is wrong
+    // TODO: fail here or in kafkaGetForeignPaths if table structure is wrong
 
     /*
      * We have no native ability to evaluate restriction clauses, so we just
@@ -740,29 +740,29 @@ static void kafkaEndForeignScan(
 }
 
 static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]) {
-	ConnCacheEntry  *entry;
-	bool             found;
+    ConnCacheEntry  *entry;
+    bool             found;
     StringInfoData   brokers;
 	rd_kafka_conf_t *conf;
 	
 	// TODO: retry if needed, specify timeout policy
 
-	if (ConnectionHash == NULL)
-	{
-		HASHCTL		ctl;
+    if (ConnectionHash == NULL)
+    {
+        HASHCTL     ctl;
 
-		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(ConnCacheKey);
-		ctl.entrysize = sizeof(ConnCacheEntry);
-		ctl.hash = tag_hash;
-		/* allocate ConnectionHash in the cache context */
-		ctl.hcxt = CacheMemoryContext;
-		ConnectionHash = hash_create("kafka_fdw connections", 8,
-									 &ctl,
-								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
-	}
+        MemSet(&ctl, 0, sizeof(ctl));
+        ctl.keysize = sizeof(ConnCacheKey);
+        ctl.entrysize = sizeof(ConnCacheEntry);
+        ctl.hash = tag_hash;
+        /* allocate ConnectionHash in the cache context */
+        ctl.hcxt = CacheMemoryContext;
+        ConnectionHash = hash_create("kafka_fdw connections", 8,
+                                     &ctl,
+                                   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+    }
 
-	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
+    entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
 
 	if (!found)
 	{
@@ -790,22 +790,22 @@ static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ER
 		}		
 	}
 
-	return entry;
+    return entry;
 }
 
 static void close_connection(ConnCacheKey key) {
-	ConnCacheEntry *entry;
-	bool            found;
+    ConnCacheEntry *entry;
+    bool            found;
 
-	if (ConnectionHash != NULL) {
-		entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
-		if (found) {
-			if (entry->kafka_handle != NULL) {
-				rd_kafka_destroy(entry->kafka_handle);
-			}
-			hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
-		}		
-	}
+    if (ConnectionHash != NULL) {
+        entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
+        if (found) {
+            if (entry->kafka_handle != NULL) {
+                rd_kafka_destroy(entry->kafka_handle);
+            }
+            hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
+        }
+    }
 }
 
 /*
@@ -836,5 +836,3 @@ static void estimate_costs(
     run_cost += cpu_per_tuple * ntuples;
     *total_cost = *startup_cost + run_cost;
 }
-
-
