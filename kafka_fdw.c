@@ -25,6 +25,8 @@
 #include "commands/vacuum.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
+#include "fmgr.h"
+#include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/cost.h"
@@ -32,12 +34,48 @@
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/var.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
 PG_MODULE_MAGIC;
 
 #define KAFKA_MAX_ERR_MSG 200
+
+// TODO: remove this poor man's profiling
+#include <sys/time.h>
+void printTime(const char * prefix);
+void printTime(const char * prefix) {
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+	
+	ereport(WARNING,
+		(errcode(ERRCODE_FDW_ERROR),
+		errmsg_internal("%s: %ld.%ld", prefix, tp.tv_sec, tp.tv_usec))
+	);
+}
+
+/*
+ * Info about the columns acceptable for usage in foreign tables
+ */
+
+typedef enum {
+	KAFKA_OFFSET = 0,
+	KAFKA_KEY,
+	KAFKA_VALUE,
+	VALID_COLUMNS_NAMES_COUNT
+} ValidColumnNameKey;
+
+struct ValidColumnInfo {
+	char name[13];
+	Oid  type;
+};
+
+static const struct ValidColumnInfo validColumnInfo[] = {
+	{"kafka_offset", INT8OID},
+	{"kafka_key"   , TEXTOID},
+	{"kafka_value" , TEXTOID}
+};
 
 /*
  * Describes the valid options for objects that use this wrapper.
@@ -84,6 +122,15 @@ static HTAB *ConnectionHash = NULL;
 /*
  * FDW-specific information for ForeignScanState.fdw_state or RelOptInfo.fdw_private.
  */
+ 
+typedef struct ColumnInfo
+{
+    int		 attnum; /* -1 means no such column found */
+    Oid      typioparam;
+    FmgrInfo pg_in_func;
+    int32    atttypmod;
+} ColumnInfo;
+ 
 typedef struct KafkaFdwState
 {
     ConnCacheKey          connection_credentials;
@@ -95,6 +142,7 @@ typedef struct KafkaFdwState
     rd_kafka_message_t  **buffer;
     ssize_t               buffer_count;
     ssize_t               buffer_cursor;
+    ColumnInfo			  columnInfo[VALID_COLUMNS_NAMES_COUNT];
 } KafkaFdwState;
 
 /*
@@ -145,17 +193,20 @@ static bool is_valid_option(
         const char *option,
         Oid context
     );
+
+static ConnCacheEntry *get_connection(ConnCacheKey key,
+                                      char errstr[KAFKA_MAX_ERR_MSG]);
+static void close_connection(ConnCacheKey key);
+static void kafka_start(KafkaFdwState *kstate);
+static void kafka_stop(KafkaFdwState *kstate);
+static void fill_pg_column_info(Relation foreignTableRelation,
+                              ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT]);
 static void estimate_costs(
         PlannerInfo *root,
         RelOptInfo *baserel,
         Cost *startup_cost,
         Cost *total_cost
     );
-
-static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]);
-
-static void close_connection(ConnCacheKey key);
-
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
  * to my callback routines.
@@ -244,27 +295,24 @@ static bool is_valid_option(const char *option, Oid context) {
    return false;
 }
 
-// TODO: do we need it?
 /*
  * Fetch the options for a file_fdw foreign table.
  */
 static void
-fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
+fill_kafka_state(Relation foreignTableRelation, KafkaFdwState *kstate)
 {
-    // TODO: extract also the table structure?
-    // BTW We are going to support 2 columns only: data (text/json/whatever)
-    //                                             and kafka_offset (long)
-    ForeignTable *table;
-    ForeignServer *server;
-    ForeignDataWrapper *wrapper;
-    List       *options;
-    ListCell   *lc;
+	// TODO: extract also the table structure in order to report wrong column names/types earlier?
+	ForeignTable       *table;
+	ForeignServer      *server;
+	ForeignDataWrapper *wrapper;
+	List	           *options;
+	ListCell           *lc;
 
     /*
      * Extract options from FDW objects.  We ignore user mappings and attributes
      * because kafka_fdw doesn't have any options that can be specified there.
      */
-    table = GetForeignTable(foreigntableid);
+    table = GetForeignTable(RelationGetRelid(foreignTableRelation));
     server = GetForeignServer(table->serverid);
     wrapper = GetForeignDataWrapper(server->fdwid);
 
@@ -273,36 +321,31 @@ fill_kafka_state(Oid foreigntableid, KafkaFdwState *kstate)
     options = list_concat(options, server->options);
     options = list_concat(options, table->options);
 
-    /*
-     * Separate out the filename.
-     */
-    foreach(lc, options)
-    {
-        DefElem    *def = (DefElem *) lfirst(lc);
-
-        if (strcmp(def->defname, "host") == 0)
-        {
-            kstate->connection_credentials.host = defGetString(def);
-        } else if (strcmp(def->defname, "port") == 0) {
-            /* already validated in kafka_fdw_validator() */
-            kstate->connection_credentials.port = atoi(defGetString(def));
-        } else if (strcmp(def->defname, "topic") == 0) {
-            kstate->topic = defGetString(def);
-        } else if (strcmp(def->defname, "offset") == 0) {
-            /* already validated in kafka_fdw_validator() */
-            kstate->offset = atoi(defGetString(def));
-        } else if (strcmp(def->defname, "batch_size") == 0) {
-            /* already validated in kafka_fdw_validator() */
-            kstate->batch_size = atoi(defGetString(def));
-        }
-    }
-
-    // TODO: remove this
-    //kstate->connection = NULL;
-    //kstate->rd_kafka_topic_t = NULL;
-    //kstate->buffer = NULL;
-    //kstate->buffer_count = 0;
-    //kstate->buffer_cursor = 0;
+	/*
+	 * Separate out the filename.
+	 */
+	foreach(lc, options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+		
+		if (strcmp(def->defname, "host") == 0)
+		{
+			kstate->connection_credentials.host = defGetString(def);
+		} else if (strcmp(def->defname, "port") == 0) {
+			/* already validated in kafka_fdw_validator() */
+			kstate->connection_credentials.port = atoi(defGetString(def));
+		} else if (strcmp(def->defname, "topic") == 0) {
+			kstate->topic = defGetString(def);
+		} else if (strcmp(def->defname, "offset") == 0) {
+			/* already validated in kafka_fdw_validator() */
+			kstate->offset = atoi(defGetString(def));
+		} else if (strcmp(def->defname, "batch_size") == 0) {
+			/* already validated in kafka_fdw_validator() */
+			kstate->batch_size = atoi(defGetString(def));
+		}
+	}
+	
+	kstate->connection = NULL;
 }
 
 /*
@@ -440,59 +483,64 @@ kafkaGetForeignPlan(PlannerInfo *root,
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
-    ) {
-    KafkaFdwState *kstate;
-    char           kafka_errstr[KAFKA_MAX_ERR_MSG];
-
-    // Do nothing for EXPLAIN
+    ) {	
+    KafkaFdwState         *kstate;
+    char                   kafka_errstr[KAFKA_MAX_ERR_MSG];
+	rd_kafka_topic_conf_t *topic_conf;
+    
+    /* Do nothing for EXPLAIN */
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
+		kstate = NULL;
         return;
     }
+	
+	/* Initialize internal state */
+	kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
+	fill_kafka_state(node->ss.ss_currentRelation, kstate);
+	node->fdw_state = (void *) kstate;
+	
+	/*
+	 * Init PostgreSQL-related stuff
+	 */
+	fill_pg_column_info(node->ss.ss_currentRelation, kstate->columnInfo);
+	
+    /*
+     * Init Kafka-related stuff
+     */
 
-    kstate = (KafkaFdwState *) palloc(sizeof(KafkaFdwState));
-    fill_kafka_state(RelationGetRelid(node->ss.ss_currentRelation), kstate);
-    node->fdw_state = (void *) kstate;
+	/* Open connection if possible */
+	if (kstate->connection == NULL) {
+		kstate->connection = get_connection(kstate->connection_credentials, 
+		                                                         kafka_errstr);
+	}
+	if (kstate->connection == NULL) {
+		ereport(ERROR,
+			(errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
+			 errmsg_internal("kafka_fdw: Unable to connect to %s:%d", 
+			                 kstate->connection_credentials.host, 
+			                 kstate->connection_credentials.port),
+			 errdetail("%s", kafka_errstr))
+		);
+	}
 
-    /* Open connection if possible */
-    if (kstate->connection == NULL) {
-        kstate->connection = get_connection(kstate->connection_credentials, kafka_errstr);
-    }
-    if (kstate->connection == NULL) {
-        ereport(ERROR,
-            (errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
-             errmsg_internal("kafka_fdw: Unable to connect to %s:%d", kstate->connection_credentials.host, kstate->connection_credentials.port),
-             errdetail("%s", kafka_errstr))
-        );
-    }
+	/* Create topic handle */
+	topic_conf = rd_kafka_topic_conf_new();
+	kstate->kafka_topic_handle = rd_kafka_topic_new(
+	                                 kstate->connection->kafka_handle,
+	                                 kstate->topic,
+	                                 topic_conf);
+	if (kstate->kafka_topic_handle == NULL) {
+		ereport(ERROR,
+			(errcode(ERRCODE_FDW_ERROR),
+			 errmsg_internal("kafka_fdw: Unable to create topic %s", 
+			                                           kstate->topic))
+		);
+	}
+	
+	kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * (kstate->batch_size));
 
-    /* Create topic handle */
-    kstate->kafka_topic_handle = rd_kafka_topic_new(kstate->connection->kafka_handle, kstate->topic, NULL);
-    if (kstate->kafka_topic_handle == NULL) {
-        ereport(ERROR,
-            (errcode(ERRCODE_FDW_ERROR),
-             errmsg_internal("kafka_fdw: Unable to create topic %s", kstate->topic))
-        );
-    }
-
-    /* Start consuming */
-    PG_TRY();
-    {
-        if (rd_kafka_consume_start(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, kstate->offset)){
-            ereport(ERROR,
-                (errcode(ERRCODE_FDW_ERROR),
-                errmsg_internal("kafka_fdw: Unable to start consuming from offset %ld", kstate->offset))
-            );
-        }
-    }
-    PG_CATCH();
-    {
-        rd_kafka_topic_destroy(kstate->kafka_topic_handle);
-    }
-    PG_END_TRY();
-
-    kstate->buffer = palloc(sizeof(rd_kafka_message_t *) * kstate->batch_size);;
-    kstate->buffer_count = 0;
-    kstate->buffer_cursor = 0;
+	/* reset the buffer, start consuming */
+    kafka_start(kstate);
 }
 
 /*
@@ -521,60 +569,86 @@ static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
     ) {
     KafkaFdwState      *kstate;
-    rd_kafka_message_t *message;
-    //TupleTableSlot     *slot;
+	rd_kafka_message_t *message;
+	TupleTableSlot     *slot;
+	ValidColumnNameKey  valid_column_name_key;	
+	StringInfoData 		columnData;
+ 	ColumnInfo         *columnInfo;
+	
+	kstate = node->fdw_state;
 
-    // TODO: this is temporary
-    char *payload;
+	slot = node->ss.ss_ScanTupleSlot;
+	ExecClearTuple(slot);
+	
+	/* 
+	 * Request more messages 
+	 * if we have already returned all the remaining ones 
+	 */
+	if (kstate->buffer_cursor >= kstate->buffer_count) {
+		kstate->buffer_count = rd_kafka_consume_batch(
+								kstate->kafka_topic_handle,
+								0/*RD_KAFKA_PARTITION_UA*/,
+								1000, kstate->buffer, kstate->batch_size);
+		if (kstate->buffer_count == -1) {
+			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+		}
+		kstate->buffer_cursor = 0;
+	}
 
-    kstate = node->fdw_state;
-    //slot = node->ss.ss_ScanTupleSlot;
-
-    /* Request more messages if we have already returned all the remaining ones */
-    if (kstate->buffer_count >= kstate->buffer_cursor) {
-        kstate->buffer_count = rd_kafka_consume_batch(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA, 1000, kstate->buffer, kstate->batch_size);
-        if (kstate->buffer_count == -1) {
-            rd_kafka_topic_destroy(kstate->kafka_topic_handle);
-            ereport(ERROR,
-                (errcode(ERRCODE_FDW_ERROR),
-                errmsg_internal("kafka_fdw: error on rd_kafka_consume_batch call"))
-            );
-        }
-        kstate->buffer_cursor = 0;
-    }
-
-    /* If we have any data */
-    if (kstate->buffer_count < kstate->buffer_cursor) {
-        message = kstate->buffer[kstate->buffer_cursor];
-        //
-        //rd_kafka_resp_err_t err;   /* Non-zero for error signaling. */
-        //rd_kafka_topic_t *rkt;     /* Topic */
-        //int32_t partition;         /* Partition */
-        //void   *payload;           /* err==0: Message payload
-        //              * err!=0: Error string */
-        //size_t  len;               /* err==0: Message payload length
-        //              * err!=0: Error string length */
-        //void   *key;               /* err==0: Optional message key */
-        //size_t  key_len;           /* err==0: Optional message key length */
-        //int64_t offset;            /* Message offset (or offset for error
-        //              * if err!=0 if applicable). */
-        //void  *_private;           /
-
-        // TODO: begin placholder
-        payload = palloc(message->len + sizeof(char));
-        memcpy((void *)payload, message->payload, message->len);
-        payload[message->len] = 0;
-
-        ereport(WARNING,
-            (errcode(ERRCODE_FDW_ERROR),
-            errmsg_internal("got message: %s", payload))
-        );
-        // TODO: end placholder
-
-        rd_kafka_message_destroy(message);
-        kstate->buffer_cursor++;
-    }
-    return NULL;
+	/* Still no data */
+	if (kstate->buffer_cursor >= kstate->buffer_count) {
+		return slot;
+	}
+	
+	message = kstate->buffer[kstate->buffer_cursor];
+	
+	/* This also means there is no data */
+	if (message->err == RD_KAFKA_RESP_ERR__PARTITION_EOF) {
+		ereport(NOTICE,
+			(errcode(ERRCODE_FDW_ERROR),
+			errmsg_internal("kafka_fdw: end of the queue was reached"))
+		);
+		return slot;
+	}
+	
+	if (message->err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+		// TODO: report some error (stored in payload)
+	}
+		
+	/* Copy data returned by kafka to a postgres-readable format */		
+	for (valid_column_name_key = 0; 
+		 valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
+		 valid_column_name_key++)
+	{
+		columnInfo = &kstate->columnInfo[valid_column_name_key];
+		if (columnInfo->attnum != -1) {
+			initStringInfo(&columnData);
+			switch (valid_column_name_key) {
+				case KAFKA_OFFSET:
+					pq_sendint64(&columnData, message->offset);
+					break;
+				case KAFKA_KEY:
+					appendBinaryStringInfo(&columnData, 
+					              (char *)(message->key), message->key_len);
+					break;
+				case KAFKA_VALUE:
+					appendBinaryStringInfo(&columnData, 
+					              (char *)(message->payload), message->len);
+			}
+			slot->tts_values[columnInfo->attnum] = 
+			        ReceiveFunctionCall(&columnInfo->pg_in_func,
+			        					&columnData,
+			        					columnInfo->typioparam,
+			        					columnInfo->atttypmod);
+			slot->tts_isnull[columnInfo->attnum] = false;
+			pfree(columnData.data);
+		};
+	}
+	ExecStoreVirtualTuple(slot);
+	
+	rd_kafka_message_destroy(message);
+	kstate->buffer_cursor++;
+	return slot;
 }
 
 /*
@@ -585,8 +659,11 @@ static TupleTableSlot *kafkaIterateForeignScan(
 static void kafkaReScanForeignScan(
         ForeignScanState *node
     ) {
-    // TODO: Implement this.
-    // This should reset the buffer index.
+    KafkaFdwState *kstate;
+    
+	kstate = node->fdw_state;
+	kafka_stop(kstate);
+	kafka_start(kstate);
 }
 
 /*
@@ -597,22 +674,30 @@ static void kafkaReScanForeignScan(
 static void kafkaEndForeignScan(
         ForeignScanState *node
     ) {
-    KafkaFdwState      *kstate;
+    KafkaFdwState *kstate;
+    
+	kstate = node->fdw_state;
 
-    kstate = node->fdw_state;
-    pfree(kstate->buffer);
-    rd_kafka_consume_stop(kstate->kafka_topic_handle, RD_KAFKA_PARTITION_UA);
-    rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+	/* kstate is null if this is an EXPLAIN call */
+    if (kstate == NULL) {
+		return;
+	}
 
-    // TODO: Implement this.
-    // This should clear the index and the buffer.
+	/* Stop consuming */
+	kafka_stop(kstate);
+
+	rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+	pfree(kstate->buffer);
 }
 
-static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ERR_MSG]) {
+static ConnCacheEntry *get_connection(ConnCacheKey key, 
+                                      char errstr[KAFKA_MAX_ERR_MSG]) {
     ConnCacheEntry  *entry;
     bool             found;
     StringInfoData   brokers;
-    rd_kafka_conf_t *conf;
+	rd_kafka_conf_t *conf;
+	
+	// TODO: retry if needed, specify timeout policy
 
     if (ConnectionHash == NULL)
     {
@@ -631,27 +716,31 @@ static ConnCacheEntry *get_connection(ConnCacheKey key, char errstr[KAFKA_MAX_ER
 
     entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
 
-    if (!found)
-    {
-        /* initialize new hashtable entry (key is already filled in) */
-        conf = rd_kafka_conf_new();
-        entry->kafka_handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
-                                           errstr, KAFKA_MAX_ERR_MSG);
-        if (entry->kafka_handle != NULL) {
-            /* Add brokers */
-            initStringInfo(&brokers);
-            appendStringInfo(&brokers, "%s:%d", key.host, key.port);
-            if (!(rd_kafka_brokers_add(entry->kafka_handle, brokers.data))) {
-                rd_kafka_destroy(entry->kafka_handle);
-                strcpy(errstr, "No valid brokers specified");
-            }
-            pfree(brokers.data);
-        }
-        if (entry->kafka_handle == NULL) {
-            hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
-            entry = NULL;
-        }
-    }
+	if (!found)
+	{
+		/* initialize new hashtable entry (key is already filled in) */		
+		conf = rd_kafka_conf_new();
+		// TODO: tune this value
+		// rd_kafka_conf_set(conf, "queued.min.messages", "1", NULL, 0);
+		
+		entry->kafka_handle = rd_kafka_new(RD_KAFKA_CONSUMER, conf,
+					                       errstr, KAFKA_MAX_ERR_MSG);
+		if (entry->kafka_handle != NULL) {
+			/* Add brokers */
+			initStringInfo(&brokers);
+			appendStringInfo(&brokers, "%s:%d", key.host, key.port);
+			/* Check if exactly 1 broker was added */
+			if (rd_kafka_brokers_add(entry->kafka_handle, brokers.data) != 1) {
+				rd_kafka_destroy(entry->kafka_handle);
+				strcpy(errstr, "No valid brokers specified");
+			}
+			pfree(brokers.data);
+		}
+		if (entry->kafka_handle == NULL) {
+			hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
+			entry = NULL;
+		}		
+	}
 
     return entry;
 }
@@ -669,6 +758,91 @@ static void close_connection(ConnCacheKey key) {
             hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
         }
     }
+}
+
+static void kafka_start(KafkaFdwState *kstate) {
+	kstate->buffer_count = 0;
+	kstate->buffer_cursor = 0;
+	/* Start consuming */
+	PG_TRY();
+	{
+		if (rd_kafka_consume_start(kstate->kafka_topic_handle, 
+		                           0/*RD_KAFKA_PARTITION_UA*/,
+		                           kstate->offset)){
+			ereport(ERROR,
+				(errcode(ERRCODE_FDW_ERROR),
+				errmsg_internal(
+					"kafka_fdw: Unable to start consuming from offset %ld", 
+					kstate->offset))
+			);
+		}
+	}
+	PG_CATCH();
+	{
+		rd_kafka_topic_destroy(kstate->kafka_topic_handle);
+	}
+	PG_END_TRY();
+}
+
+static void kafka_stop(KafkaFdwState *kstate) {
+	rd_kafka_consume_stop(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/);
+}
+
+static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT]) {
+	TupleDesc          tupDesc;
+	int                num_phys_attrs;
+	int                attnum;
+	Form_pg_attribute  attr;	
+	ValidColumnNameKey valid_column_name_key;
+	Oid                pg_in_func_oid;
+	
+	tupDesc = RelationGetDescr(foreignTableRelation);
+	num_phys_attrs = tupDesc->natts;
+
+	/* Place -1 values: this means the columns are not yet found in the table */
+	for (valid_column_name_key = 0; 
+	     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT;
+	     valid_column_name_key++)
+	{
+		columnInfo[valid_column_name_key].attnum = -1;
+	}
+
+	for (attnum = 0; attnum < num_phys_attrs; attnum++)
+	{
+		attr = tupDesc->attrs[attnum];
+		
+		/* We don't need info for dropped attributes */
+		if (attr->attisdropped)
+			continue;
+		
+		/* Find out if current column is in the list of allowed ones */
+		for (valid_column_name_key = 0; 
+		     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT; 
+		     valid_column_name_key++) {
+			if (strcmp(attr->attname.data,
+			    validColumnInfo[valid_column_name_key].name) == 0) {
+				break;
+			}
+		}
+		
+		/* Raise exception if not found */
+		if (valid_column_name_key == VALID_COLUMNS_NAMES_COUNT) {
+			// TODO: ereport here
+		}
+		
+		/* Raise exception if the type is wrong */
+		if (validColumnInfo[valid_column_name_key].type != attr->atttypid) {
+			// TODO: ereport here
+		}
+		
+		columnInfo[valid_column_name_key].attnum = attnum;
+		
+		/* Get proper input function for the column type */
+		getTypeBinaryInputInfo(attr->atttypid, &pg_in_func_oid,
+					&columnInfo[valid_column_name_key].typioparam);
+		fmgr_info(pg_in_func_oid,
+		            &columnInfo[valid_column_name_key].pg_in_func);
+	}
 }
 
 /*
