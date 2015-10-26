@@ -4,6 +4,7 @@ create server kafka_openstack_alexey_1 foreign data wrapper kafka_fdw options (h
 create foreign table kafka_openstack_alexey_1_elephants(kafka_offset bigint, kafka_value text) server kafka_openstack_alexey_1 options (topic 'test', batch_size '30000', offset '26528300');
 
 select * from kafka_openstack_alexey_1_elephants limit 5;
+select * from kafka_openstack_alexey_1_elephants limit 5;
 explain select * from kafka_openstack_alexey_1_elephants limit 5;
 explain analyze select * from kafka_openstack_alexey_1_elephants limit 100000;
 
