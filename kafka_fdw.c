@@ -45,7 +45,8 @@ PG_MODULE_MAGIC;
 // TODO: remove this poor man's profiling
 #include <sys/time.h>
 void printTime(const char * prefix);
-void printTime(const char * prefix) {
+void printTime(const char * prefix)
+{
 	struct timeval tp;
 	gettimeofday(&tp, NULL);
 	
@@ -59,14 +60,16 @@ void printTime(const char * prefix) {
  * Info about the columns acceptable for usage in foreign tables
  */
 
-typedef enum {
+typedef enum
+{
 	KAFKA_OFFSET = 0,
 	KAFKA_KEY,
 	KAFKA_VALUE,
 	VALID_COLUMNS_NAMES_COUNT
 } ValidColumnNameKey;
 
-struct ValidColumnInfo {
+struct ValidColumnInfo
+{
 	char name[13];
 	Oid  type;
 };
@@ -235,7 +238,8 @@ kafka_fdw_handler(PG_FUNCTION_ARGS)
  *
  * Raise an ERROR if the option or its value is considered invalid.
  */
-Datum kafka_fdw_validator(PG_FUNCTION_ARGS) {
+Datum kafka_fdw_validator(PG_FUNCTION_ARGS)
+{
    List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
    Oid catalog = PG_GETARG_OID(1);
    ListCell *cell;
@@ -244,10 +248,12 @@ Datum kafka_fdw_validator(PG_FUNCTION_ARGS) {
     * Check that only options supported by file_fdw, and allowed for the
     * current object type, are given.
     */
-   foreach(cell, options_list) {
+   foreach(cell, options_list)
+   {
        DefElem *def = (DefElem *) lfirst(cell);
 
-       if (!is_valid_option(def->defname, catalog)) {
+       if (!is_valid_option(def->defname, catalog))
+       {
            const struct KafkaFdwOption *opt;
            StringInfoData buf;
 
@@ -256,7 +262,8 @@ Datum kafka_fdw_validator(PG_FUNCTION_ARGS) {
             * with list of valid options for the object.
             */
            initStringInfo(&buf);
-           for (opt = valid_options; opt->optname; opt++) {
+           for (opt = valid_options; opt->optname; opt++)
+           {
                if (catalog == opt->optcontext)
                    appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
                                     opt->optname);
@@ -285,10 +292,12 @@ Datum kafka_fdw_validator(PG_FUNCTION_ARGS) {
  * Check if the provided option is one of the valid options.
  * context is the Oid of the catalog holding the object the option is for.
  */
-static bool is_valid_option(const char *option, Oid context) {
+static bool is_valid_option(const char *option, Oid context)
+{
    const struct KafkaFdwOption *opt;
 
-   for (opt = valid_options; opt->optname; opt++) {
+   for (opt = valid_options; opt->optname; opt++)
+   {
        if (context == opt->optcontext && strcmp(opt->optname, option) == 0)
            return true;
    }
@@ -331,15 +340,23 @@ fill_kafka_state(Relation foreignTableRelation, KafkaFdwState *kstate)
 		if (strcmp(def->defname, "host") == 0)
 		{
 			kstate->connection_credentials.host = defGetString(def);
-		} else if (strcmp(def->defname, "port") == 0) {
+		}
+		else if (strcmp(def->defname, "port") == 0)
+		{
 			/* already validated in kafka_fdw_validator() */
 			kstate->connection_credentials.port = atoi(defGetString(def));
-		} else if (strcmp(def->defname, "topic") == 0) {
+		}
+		else if (strcmp(def->defname, "topic") == 0)
+		{
 			kstate->topic = defGetString(def);
-		} else if (strcmp(def->defname, "offset") == 0) {
+		}
+		else if (strcmp(def->defname, "offset") == 0)
+		{
 			/* already validated in kafka_fdw_validator() */
 			kstate->offset = atoi(defGetString(def));
-		} else if (strcmp(def->defname, "batch_size") == 0) {
+		}
+		else if (strcmp(def->defname, "batch_size") == 0)
+		{
 			/* already validated in kafka_fdw_validator() */
 			kstate->batch_size = atoi(defGetString(def));
 		}
@@ -369,7 +386,8 @@ static void kafkaGetForeignRelSize(
         PlannerInfo *root,
         RelOptInfo *baserel,
         Oid foreigntableid
-    ) {
+    )
+{
     // TODO: maybe we should return some large value here to avoid misplanning
     // NOOP
 
@@ -399,7 +417,8 @@ static void kafkaGetForeignPaths(
         PlannerInfo *root,
         RelOptInfo *baserel,
         Oid foreigntableid
-    ) {
+    )
+{
     Cost startup_cost;
     Cost total_cost;
     Path *path;
@@ -483,13 +502,15 @@ kafkaGetForeignPlan(PlannerInfo *root,
 static void kafkaBeginForeignScan(
         ForeignScanState *node,
         int eflags
-    ) {	
+    )
+{	
     KafkaFdwState         *kstate;
     char                   kafka_errstr[KAFKA_MAX_ERR_MSG];
 	rd_kafka_topic_conf_t *topic_conf;
     
     /* Do nothing for EXPLAIN */
-    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) {
+    if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+    {
 		kstate = NULL;
         return;
     }
@@ -509,11 +530,13 @@ static void kafkaBeginForeignScan(
      */
 
 	/* Open connection if possible */
-	if (kstate->connection == NULL) {
+	if (kstate->connection == NULL)
+	{
 		kstate->connection = get_connection(kstate->connection_credentials, 
 		                                                         kafka_errstr);
 	}
-	if (kstate->connection == NULL) {
+	if (kstate->connection == NULL)
+	{
 		ereport(ERROR,
 			(errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
 			 errmsg_internal("kafka_fdw: Unable to connect to %s:%d", 
@@ -529,7 +552,8 @@ static void kafkaBeginForeignScan(
 	                                 kstate->connection->kafka_handle,
 	                                 kstate->topic,
 	                                 topic_conf);
-	if (kstate->kafka_topic_handle == NULL) {
+	if (kstate->kafka_topic_handle == NULL)
+	{
 		ereport(ERROR,
 			(errcode(ERRCODE_FDW_ERROR),
 			 errmsg_internal("kafka_fdw: Unable to create topic %s", 
@@ -567,7 +591,8 @@ static void kafkaBeginForeignScan(
  */
 static TupleTableSlot *kafkaIterateForeignScan(
         ForeignScanState *node
-    ) {
+    )
+{
     KafkaFdwState      *kstate;
 	rd_kafka_message_t *message;
 	TupleTableSlot     *slot;
@@ -584,26 +609,28 @@ static TupleTableSlot *kafkaIterateForeignScan(
 	 * Request more messages 
 	 * if we have already returned all the remaining ones 
 	 */
-	if (kstate->buffer_cursor >= kstate->buffer_count) {
+	if (kstate->buffer_cursor >= kstate->buffer_count)
+	{
 		kstate->buffer_count = rd_kafka_consume_batch(
 								kstate->kafka_topic_handle,
 								0/*RD_KAFKA_PARTITION_UA*/,
 								1000, kstate->buffer, kstate->batch_size);
-		if (kstate->buffer_count == -1) {
+		if (kstate->buffer_count == -1)
+		{
 			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
 		}
 		kstate->buffer_cursor = 0;
 	}
 
 	/* Still no data */
-	if (kstate->buffer_cursor >= kstate->buffer_count) {
+	if (kstate->buffer_cursor >= kstate->buffer_count)
 		return slot;
-	}
 	
 	message = kstate->buffer[kstate->buffer_cursor];
 	
 	/* This also means there is no data */
-	if (message->err == RD_KAFKA_RESP_ERR__PARTITION_EOF) {
+	if (message->err == RD_KAFKA_RESP_ERR__PARTITION_EOF)
+	{
 		ereport(NOTICE,
 			(errcode(ERRCODE_FDW_ERROR),
 			errmsg_internal("kafka_fdw: end of the queue was reached"))
@@ -611,7 +638,8 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		return slot;
 	}
 	
-	if (message->err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+	if (message->err != RD_KAFKA_RESP_ERR_NO_ERROR)
+	{
 		// TODO: report some error (stored in payload)
 	}
 		
@@ -658,7 +686,8 @@ static TupleTableSlot *kafkaIterateForeignScan(
  */
 static void kafkaReScanForeignScan(
         ForeignScanState *node
-    ) {
+    )
+{
     KafkaFdwState *kstate;
     
 	kstate = node->fdw_state;
@@ -673,15 +702,15 @@ static void kafkaReScanForeignScan(
  */
 static void kafkaEndForeignScan(
         ForeignScanState *node
-    ) {
+    )
+{
     KafkaFdwState *kstate;
     
 	kstate = node->fdw_state;
 
 	/* kstate is null if this is an EXPLAIN call */
-    if (kstate == NULL) {
+    if (kstate == NULL)
 		return;
-	}
 
 	/* Stop consuming */
 	kafka_stop(kstate);
@@ -691,7 +720,8 @@ static void kafkaEndForeignScan(
 }
 
 static ConnCacheEntry *get_connection(ConnCacheKey key, 
-                                      char errstr[KAFKA_MAX_ERR_MSG]) {
+                                      char errstr[KAFKA_MAX_ERR_MSG])
+{
     ConnCacheEntry  *entry;
     bool             found;
     StringInfoData   brokers;
@@ -725,18 +755,21 @@ static ConnCacheEntry *get_connection(ConnCacheKey key,
 		
 		entry->kafka_handle = rd_kafka_new(RD_KAFKA_CONSUMER, conf,
 					                       errstr, KAFKA_MAX_ERR_MSG);
-		if (entry->kafka_handle != NULL) {
+		if (entry->kafka_handle != NULL)
+		{
 			/* Add brokers */
 			initStringInfo(&brokers);
 			appendStringInfo(&brokers, "%s:%d", key.host, key.port);
 			/* Check if exactly 1 broker was added */
-			if (rd_kafka_brokers_add(entry->kafka_handle, brokers.data) != 1) {
+			if (rd_kafka_brokers_add(entry->kafka_handle, brokers.data) != 1)
+			{
 				rd_kafka_destroy(entry->kafka_handle);
 				strcpy(errstr, "No valid brokers specified");
 			}
 			pfree(brokers.data);
 		}
-		if (entry->kafka_handle == NULL) {
+		if (entry->kafka_handle == NULL)
+		{
 			hash_search(ConnectionHash, &key, HASH_REMOVE, &found);
 			entry = NULL;
 		}		
@@ -745,22 +778,25 @@ static ConnCacheEntry *get_connection(ConnCacheKey key,
     return entry;
 }
 
-static void close_connection(ConnCacheKey key) {
+static void close_connection(ConnCacheKey key)
+{
     ConnCacheEntry *entry;
     bool            found;
 
-    if (ConnectionHash != NULL) {
+    if (ConnectionHash != NULL)
+    {
         entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
-        if (found) {
-            if (entry->kafka_handle != NULL) {
+        if (found)
+        {
+            if (entry->kafka_handle != NULL)
                 rd_kafka_destroy(entry->kafka_handle);
-            }
             hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
         }
     }
 }
 
-static void kafka_start(KafkaFdwState *kstate) {
+static void kafka_start(KafkaFdwState *kstate)
+{
 	kstate->buffer_count = 0;
 	kstate->buffer_cursor = 0;
 	/* Start consuming */
@@ -768,7 +804,8 @@ static void kafka_start(KafkaFdwState *kstate) {
 	{
 		if (rd_kafka_consume_start(kstate->kafka_topic_handle, 
 		                           0/*RD_KAFKA_PARTITION_UA*/,
-		                           kstate->offset)){
+		                           kstate->offset))
+		{
 			ereport(ERROR,
 				(errcode(ERRCODE_FDW_ERROR),
 				errmsg_internal(
@@ -784,11 +821,13 @@ static void kafka_start(KafkaFdwState *kstate) {
 	PG_END_TRY();
 }
 
-static void kafka_stop(KafkaFdwState *kstate) {
+static void kafka_stop(KafkaFdwState *kstate)
+{
 	rd_kafka_consume_stop(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/);
 }
 
-static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT]) {
+static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT])
+{
 	TupleDesc          tupDesc;
 	int                num_phys_attrs;
 	int                attnum;
@@ -818,20 +857,24 @@ static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo column
 		/* Find out if current column is in the list of allowed ones */
 		for (valid_column_name_key = 0; 
 		     valid_column_name_key < VALID_COLUMNS_NAMES_COUNT; 
-		     valid_column_name_key++) {
+		     valid_column_name_key++)
+		{
 			if (strcmp(attr->attname.data,
-			    validColumnInfo[valid_column_name_key].name) == 0) {
+			    validColumnInfo[valid_column_name_key].name) == 0)
+			{
 				break;
 			}
 		}
 		
 		/* Raise exception if not found */
-		if (valid_column_name_key == VALID_COLUMNS_NAMES_COUNT) {
+		if (valid_column_name_key == VALID_COLUMNS_NAMES_COUNT)
+		{
 			// TODO: ereport here
 		}
 		
 		/* Raise exception if the type is wrong */
-		if (validColumnInfo[valid_column_name_key].type != attr->atttypid) {
+		if (validColumnInfo[valid_column_name_key].type != attr->atttypid)
+		{
 			// TODO: ereport here
 		}
 		
@@ -855,7 +898,8 @@ static void estimate_costs(
         RelOptInfo *baserel,
         Cost *startup_cost,
         Cost *total_cost
-    ) {
+    )
+{
     // TODO: maybe hardcode larger values here?
     BlockNumber pages = baserel->pages;
     double ntuples = baserel->tuples;
