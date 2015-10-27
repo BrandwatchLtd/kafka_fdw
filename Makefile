@@ -23,8 +23,7 @@ test : build-tests
 	runtests -b tests -s tests -l tests/TESTS
 
 build-tests : tests/kafka_fdw.t.o
-	${CC} -I. -o tests/kafka_fdw-t tests/kafka_fdw.t.o $(TEST_LIBRARY_OBJECTS)
-
+	$(CC) -I. $(CFLAGS) $(PG_LIBS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o tests/kafka_fdw-t tests/kafka_fdw.t.o $(TEST_LIBRARY_OBJECTS)
 
 tests/kafka_fdw.t.o : $(TEST_LIBRARY_OBJECTS)
 

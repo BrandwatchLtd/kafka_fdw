@@ -199,7 +199,7 @@ static bool is_valid_option(
 
 static ConnCacheEntry *get_connection(ConnCacheKey key,
                                       char errstr[KAFKA_MAX_ERR_MSG]);
-static void close_connection(ConnCacheKey key);
+// static void close_connection(ConnCacheKey key);
 static void kafka_start(KafkaFdwState *kstate);
 static void kafka_stop(KafkaFdwState *kstate);
 static void fill_pg_column_info(Relation foreignTableRelation,
@@ -662,6 +662,10 @@ static TupleTableSlot *kafkaIterateForeignScan(
 				case KAFKA_VALUE:
 					appendBinaryStringInfo(&columnData, 
 					              (char *)(message->payload), message->len);
+                    break;
+                case VALID_COLUMNS_NAMES_COUNT:
+                    break;
+
 			}
 			slot->tts_values[columnInfo->attnum] = 
 			        ReceiveFunctionCall(&columnInfo->pg_in_func,
@@ -778,22 +782,22 @@ static ConnCacheEntry *get_connection(ConnCacheKey key,
     return entry;
 }
 
-static void close_connection(ConnCacheKey key)
-{
-    ConnCacheEntry *entry;
-    bool            found;
-
-    if (ConnectionHash != NULL)
-    {
-        entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
-        if (found)
-        {
-            if (entry->kafka_handle != NULL)
-                rd_kafka_destroy(entry->kafka_handle);
-            hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
-        }
-    }
-}
+//static void close_connection(ConnCacheKey key)
+//{
+//    ConnCacheEntry *entry;
+//    bool            found;
+//
+//    if (ConnectionHash != NULL)
+//    {
+//        entry = hash_search(ConnectionHash, &key, HASH_FIND, &found);
+//        if (found)
+//        {
+//            if (entry->kafka_handle != NULL)
+//                rd_kafka_destroy(entry->kafka_handle);
+//            hash_search(ConnectionHash, &key, HASH_REMOVE, NULL);
+//        }
+//    }
+//}
 
 static void kafka_start(KafkaFdwState *kstate)
 {
