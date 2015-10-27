@@ -13,3 +13,10 @@ postgres:
     build: .
     links:
         - kafka
+    ports:
+        - "5432:5432"
+loader:
+    container_name: loader
+    build: src
+    links:
+        - kafka

@@ -1,8 +1,11 @@
+CREATE DATABASE kafka;
+
+\c kafka
+
 CREATE EXTENSION kafka_fdw;
 
 CREATE SERVER s_kafka
-FOREIGN DATA WRAPPER kafka_fdw
-OPTIONS ();
+FOREIGN DATA WRAPPER kafka_fdw;
 
 CREATE FOREIGN TABLE t_kafka
 (
@@ -12,7 +15,7 @@ CREATE FOREIGN TABLE t_kafka
 SERVER s_kafka
 OPTIONS
 (
-    topic 'test',
+    topic: 'test',
     batch_size: '30000'
 );
 
