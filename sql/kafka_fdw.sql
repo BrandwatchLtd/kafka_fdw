@@ -1,5 +1,5 @@
+DROP DATABASE IF EXISTS kafka;
 CREATE DATABASE kafka;
-
 \c kafka
 
 CREATE EXTENSION kafka_fdw;
@@ -15,8 +15,8 @@ CREATE FOREIGN TABLE t_kafka
 SERVER s_kafka
 OPTIONS
 (
-    topic: 'test',
-    batch_size: '30000'
+    topic 'test',
+    batch_size '30000'
 );
 
 SELECT
