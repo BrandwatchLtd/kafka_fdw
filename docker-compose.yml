@@ -1,8 +1,22 @@
+zookeeper:
+    container_name: zookeeper
+    image: jplock/zookeeper
+kafka:
+    container_name: kafka
+    image: ches/kafka
+    links:
+        - zookeeper
+    ports:
+        - "9092:9092"
 postgres:
-  container_name: kafka_fdw
-  build: .
-  ports:
-    - "5432:5432"
-  environment:
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: password
+    container_name: postgres
+    build: .
+    links:
+        - kafka
+    ports:
+        - "5432:5432"
+loader:
+    container_name: loader
+    build: src
+    links:
+        - kafka

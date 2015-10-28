@@ -195,8 +195,7 @@ static bool is_valid_option(
 
 static ConnCacheEntry *get_connection(ConnCacheKey key,
                                       char errstr[KAFKA_MAX_ERR_MSG]);
-// TODO: maybe some time we will need to close connection explicitly
-//static void close_connection(ConnCacheKey key);
+static void close_connection(ConnCacheKey key);
 static void kafka_start(KafkaFdwState *kstate);
 static void kafka_stop(KafkaFdwState *kstate);
 static void fill_pg_column_info(Relation foreignTableRelation,
@@ -237,51 +236,52 @@ kafka_fdw_handler(PG_FUNCTION_ARGS)
  */
 Datum kafka_fdw_validator(PG_FUNCTION_ARGS)
 {
-    List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
-    Oid catalog = PG_GETARG_OID(1);
-    ListCell *cell;
-    
-    /*
-     * Check that only options supported by file_fdw, and allowed for the
-     * current object type, are given.
-     */
-    foreach(cell, options_list)
-    {
-        DefElem *def = (DefElem *) lfirst(cell);
-    
-        if (!is_valid_option(def->defname, catalog))
-        {
-            const struct KafkaFdwOption *opt;
-            StringInfoData buf;
-    
-            /*
-             * Unknown option specified, complain about it. Provide a hint
-             * with list of valid options for the object.
-             */
-            initStringInfo(&buf);
-            for (opt = valid_options; opt->optname; opt++)
-            {
-                if (catalog == opt->optcontext)
-                    appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
-                                     opt->optname);
-            }
-    
-            ereport(ERROR,
-                    (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
-                     errmsg("invalid option \"%s\"", def->defname),
-                     buf.len > 0
-                     ? errhint("Valid options in this context are: %s",
-                               buf.data)
-                  : errhint("There are no valid options in this context.")));
-        }
-    }
-	// TODO: check if offset fits int64
-	// TODO: check if batch_size fits size_t
-	// TODO: check if port fits uint16
-    // TODO: check if all options are set
-    // TODO: check if options are not duplicated
-    
-    PG_RETURN_VOID();
+   List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+   Oid catalog = PG_GETARG_OID(1);
+   ListCell *cell;
+
+   /*
+    * Check that only options supported by file_fdw, and allowed for the
+    * current object type, are given.
+    */
+   foreach(cell, options_list)
+   {
+       DefElem *def = (DefElem *) lfirst(cell);
+
+       if (!is_valid_option(def->defname, catalog))
+       {
+           const struct KafkaFdwOption *opt;
+           StringInfoData buf;
+
+           /*
+            * Unknown option specified, complain about it. Provide a hint
+            * with list of valid options for the object.
+            */
+           initStringInfo(&buf);
+           for (opt = valid_options; opt->optname; opt++)
+           {
+               if (catalog == opt->optcontext)
+                   appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
+                                    opt->optname);
+           }
+
+           ereport(ERROR,
+                   (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+                    errmsg("invalid option \"%s\"", def->defname),
+                    buf.len > 0
+                    ? errhint("Valid options in this context are: %s",
+                              buf.data)
+                 : errhint("There are no valid options in this context.")));
+       }
+   }
+
+   // TODO: check if offset fits uint64
+   // TODO: check if batch_size fits size_t
+   // TODO: check if port fits uint16
+   // TODO: check if all options are set
+   // TODO: check if options are not duplicated
+
+   PG_RETURN_VOID();
 }
 
 /*
@@ -541,7 +541,7 @@ static void kafkaBeginForeignScan(
 	{
 		ereport(ERROR,
 			(errcode(ERRCODE_FDW_UNABLE_TO_ESTABLISH_CONNECTION),
-			 errmsg_internal("kafka_fdw could not connect to broker %s:%d", 
+			 errmsg_internal("kafka_fdw: Unable to connect to %s:%d", 
 			                 kstate->connection_credentials.host, 
 			                 kstate->connection_credentials.port),
 			 errdetail("%s", kafka_errstr))
@@ -558,7 +558,7 @@ static void kafkaBeginForeignScan(
 	{
 		ereport(ERROR,
 			(errcode(ERRCODE_FDW_ERROR),
-			 errmsg_internal("kafka_fdw could not create topic %s", 
+			 errmsg_internal("kafka_fdw: Unable to create topic %s", 
 			                                           kstate->topic))
 		);
 	}

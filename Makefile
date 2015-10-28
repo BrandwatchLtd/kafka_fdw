@@ -16,15 +16,3 @@ include $(PGXS)
 
 SHLIB_LINK += $(filter -lz -lpthread -lrt, $(LIBS))
 SHLIB_LINK += -lrdkafka
-
-TEST_LIBRARY_OBJECTS = tests/tap/basic.o tests/tap/float.o
-TEST_OBJECTS = tests/kafka_fdw-t tests/kafka_fdw.t.o
-
-test : build-tests
-	runtests -b tests -s tests -l tests/TESTS
-
-build-tests : tests/kafka_fdw.t.o
-	${CC} -I. -o $(TEST_OBJECTS) $(TEST_LIBRARY_OBJECTS)
-
-
-tests/kafka_fdw.t.o : $(TEST_LIBRARY_OBJECTS)
