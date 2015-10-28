@@ -8,4 +8,4 @@ RUN pip install kafka-python
 COPY load.py /load.py
 COPY data.json /data.json
 
-CMD ["python", "load.py"]
+CMD ["python", "-u", "load.py"]
