@@ -5,22 +5,18 @@ from kafka import KafkaClient, SimpleProducer
 
 
 def main():
-    say("Loader started...")
+    print("Loader started...")
 
     sleep(2)
 
-    say("Starting message load...")
+    print("Starting message load...")
 
     KafkaHandler().create_topic().load_messages()
 
-    say("Loaded all messages...")
+    print("Loaded all messages...")
 
     while True:
         sleep(60)
-
-def say(message):
-    print message
-    sys.stdout.flush()
 
 
 class KafkaHandler(object):

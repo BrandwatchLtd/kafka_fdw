@@ -201,6 +201,10 @@ static bool is_valid_option(
 
 static ConnCacheEntry *get_connection(ConnCacheKey key,
                                       char errstr[KAFKA_MAX_ERR_MSG]);
+<<<<<<< HEAD
+=======
+// TODO: maybe some time we will need to close connection explicitly
+>>>>>>> matthew/master
 //static void close_connection(ConnCacheKey key);
 static void kafka_start(KafkaFdwState *kstate);
 static void kafka_stop(KafkaFdwState *kstate);
