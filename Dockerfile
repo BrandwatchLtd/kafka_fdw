@@ -1,11 +1,11 @@
 FROM ubuntu
 
 RUN apt-get update
-RUN apt-get install -y wget git librdkafka-dev
+RUN apt-get install -y wget git
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main 9.5" > /etc/apt/sources.list.d/postgres.list
 RUN wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN apt-get update
-RUN apt-get install -y postgresql-9.4 postgresql-server-dev-9.4 libcurl4-openssl-dev build-essential
+RUN apt-get install -y postgresql-9.4 postgresql-server-dev-9.4 libcurl4-openssl-dev build-essential librdkafka librdkafka-dev
 RUN echo "host all all 0.0.0.0/0 trust" >> /etc/postgresql/9.4/main/pg_hba.conf
 
 COPY . /project
