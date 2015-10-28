@@ -1,5 +1,5 @@
+DROP DATABASE IF EXISTS kafka;
 CREATE DATABASE kafka;
-
 \c kafka
 
 CREATE EXTENSION kafka_fdw;

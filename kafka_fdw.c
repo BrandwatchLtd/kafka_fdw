@@ -44,12 +44,18 @@
 
 PG_MODULE_MAGIC;
 
+#define DEFAULT_HOST "localhost"
+#define DEFAULT_PORT 9092
+#define DEFAULT_OFFSET RD_KAFKA_OFFSET_BEGINNING /* -2 */
 #define DEFAULT_BATCH_SIZE 30000
+
 #define CONSUME_TIMEOUT 100
 #define KAFKA_MAX_ERR_MSG 200
 
 #define RELSIZE_ROWS_ESTIMATE 30000
 #define RELSIZE_WIDTH_ESTIMATE 2000
+
+static char default_host[] = DEFAULT_HOST;
 
 /*
  * Info about the columns acceptable for usage in foreign tables
@@ -57,22 +63,22 @@ PG_MODULE_MAGIC;
 
 typedef enum
 {
-	KAFKA_OFFSET = 0,
-	KAFKA_KEY,
-	KAFKA_VALUE,
+	COLUMN_OFFSET = 0,
+	COLUMN_KEY,
+	COLUMN_VALUE,
 	VALID_COLUMNS_NAMES_COUNT
 } ValidColumnNameKey;
 
 struct ValidColumnInfo
 {
-	char name[13];
+	char name[9];
 	Oid  type;
 };
 
 static const struct ValidColumnInfo validColumnInfo[] = {
-	{"kafka_offset", INT8OID},
-	{"kafka_key"   , TEXTOID},
-	{"kafka_value" , TEXTOID}
+	{"i_offset", INT8OID},
+	{"t_key"   , TEXTOID},
+	{"t_value" , TEXTOID}
 };
 
 /*
@@ -195,7 +201,7 @@ static bool is_valid_option(
 
 static ConnCacheEntry *get_connection(ConnCacheKey key,
                                       char errstr[KAFKA_MAX_ERR_MSG]);
-static void close_connection(ConnCacheKey key);
+//static void close_connection(ConnCacheKey key);
 static void kafka_start(KafkaFdwState *kstate);
 static void kafka_stop(KafkaFdwState *kstate);
 static void fill_pg_column_info(Relation foreignTableRelation,
@@ -206,6 +212,10 @@ static void estimate_costs(
         Cost *startup_cost,
         Cost *total_cost
     );
+static bool foreign_table_has_option(Relation table, const char *option);
+
+/* ************************************************************************** */
+
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
  * to my callback routines.
@@ -308,29 +318,26 @@ fill_kafka_state(Relation foreignTableRelation, KafkaFdwState *kstate)
 {
 	ForeignTable       *table;
 	ForeignServer      *server;
-	ForeignDataWrapper *wrapper;
-	List	           *options;
 	ListCell           *lc;
+	DefElem 		   *def;
 	
 	/* Write defaults */
+	kstate->connection_credentials.host = default_host;
+	kstate->connection_credentials.port = DEFAULT_PORT;
 	kstate->batch_size = RELSIZE_ROWS_ESTIMATE;
+	kstate->offset = DEFAULT_OFFSET;
 
     /*
-     * Extract options from FDW objects.  We ignore user mappings and attributes
-     * because kafka_fdw doesn't have any options that can be specified there.
+     * Extract options from FDW objects.  We ignore user mappings and wrapper 
+     * attributes because kafka_fdw doesn't have any options 
+     * that can be specified there.
      */
     table = GetForeignTable(RelationGetRelid(foreignTableRelation));
     server = GetForeignServer(table->serverid);
-    wrapper = GetForeignDataWrapper(server->fdwid);
 
-    options = NIL;
-    options = list_concat(options, wrapper->options);
-    options = list_concat(options, server->options);
-    options = list_concat(options, table->options);
-
-	foreach(lc, options)
+	foreach(lc, server->options)
 	{
-		DefElem *def = (DefElem *) lfirst(lc);
+		def = (DefElem *) lfirst(lc);
 		
 		if (strcmp(def->defname, "host") == 0)
 		{
@@ -341,7 +348,13 @@ fill_kafka_state(Relation foreignTableRelation, KafkaFdwState *kstate)
 			/* already validated in kafka_fdw_validator() */
 			kstate->connection_credentials.port = atoi(defGetString(def));
 		}
-		else if (strcmp(def->defname, "topic") == 0)
+	}
+	
+	foreach(lc, table->options)
+	{
+		def = (DefElem *) lfirst(lc);
+		
+		if (strcmp(def->defname, "topic") == 0)
 		{
 			kstate->topic = defGetString(def);
 		}
@@ -614,9 +627,9 @@ static TupleTableSlot *kafkaIterateForeignScan(
 	if (kstate->buffer_cursor >= kstate->buffer_count)
 	{
 		kstate->buffer_count = rd_kafka_consume_batch(
-								kstate->kafka_topic_handle,
-								0/*RD_KAFKA_PARTITION_UA*/,
-								CONSUME_TIMEOUT, kstate->buffer, kstate->batch_size);
+						kstate->kafka_topic_handle,
+						0/*RD_KAFKA_PARTITION_UA*/,
+						CONSUME_TIMEOUT, kstate->buffer, kstate->batch_size);
 		if (kstate->buffer_count == -1)
 		{
 			rd_kafka_topic_destroy(kstate->kafka_topic_handle);
@@ -663,14 +676,14 @@ static TupleTableSlot *kafkaIterateForeignScan(
 		if (columnInfo->attnum != -1) {
 			initStringInfo(&columnData);
 			switch (valid_column_name_key) {
-				case KAFKA_OFFSET:
+				case COLUMN_OFFSET:
 					pq_sendint64(&columnData, message->offset);
 					break;
-				case KAFKA_KEY:
+				case COLUMN_KEY:
 					appendBinaryStringInfo(&columnData, 
 					              (char *)(message->key), message->key_len);
 					break;
-				case KAFKA_VALUE:
+				case COLUMN_VALUE:
 					appendBinaryStringInfo(&columnData, 
 					              (char *)(message->payload), message->len);
 			}
@@ -741,7 +754,10 @@ static void kafkaEndForeignScan(
 	snprintf(offsetStr, sizeof(offsetStr)/sizeof(char), "%ld", 
 	                                           kstate->max_offset_returned + 1);
 	cmd->def = (Node *) list_make1(makeDefElemExtended(
-				 NULL, "offset", (Node *) makeString(offsetStr), DEFELEM_SET));
+		NULL, "offset", (Node *) makeString(offsetStr), 
+		foreign_table_has_option(node->ss.ss_currentRelation, "offset")
+			? DEFELEM_SET : DEFELEM_ADD
+	));
 
 	AlterTableInternal(RelationGetRelid(node->ss.ss_currentRelation), 
 	                                                   list_make1(cmd), false);
@@ -864,7 +880,8 @@ static void kafka_stop(KafkaFdwState *kstate)
 	rd_kafka_consume_stop(kstate->kafka_topic_handle, 0/*RD_KAFKA_PARTITION_UA*/);
 }
 
-static void fill_pg_column_info(Relation foreignTableRelation, ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT])
+static void fill_pg_column_info(Relation foreignTableRelation, 
+                                ColumnInfo columnInfo[VALID_COLUMNS_NAMES_COUNT])
 {
 	TupleDesc          tupDesc;
 	int                num_phys_attrs;
@@ -980,4 +997,19 @@ static void estimate_costs(
     cpu_per_tuple = cpu_tuple_cost + baserel->baserestrictcost.per_tuple;
     run_cost += cpu_per_tuple * ntuples;
     *total_cost = *startup_cost + run_cost;
+}
+
+static bool foreign_table_has_option(Relation table, const char *option)
+{
+	ListCell           *lc;
+	DefElem 		   *def;
+	
+	foreach(lc, GetForeignTable(RelationGetRelid(table))->options)
+	{
+		def = (DefElem *) lfirst(lc);
+		if (strcmp(def->defname, option) == 0)
+			return true;
+	}
+	
+	return false;
 }
