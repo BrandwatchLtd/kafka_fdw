@@ -1,7 +1,7 @@
 FROM ubuntu
 
 RUN apt-get update
-RUN apt-get install -y python-pip
+RUN apt-get install --assume-yes python-pip
 RUN pip install --upgrade pip distribute
 RUN pip install kafka-python
 
