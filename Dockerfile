@@ -31,9 +31,9 @@ ENV PGDATA /var/lib/postgresql/data
 
 EXPOSE 5432
 
-CMD [
-    "postgres",
-        "--config_file=/etc/postgresql/9.4/main/postgresql.conf",
-        "--stats_temp_directory=/tmp",
-        "--listen_addresses=0.0.0.0"
+CMD [                                                             \
+    "postgres",                                                   \
+        "--config_file=/etc/postgresql/9.4/main/postgresql.conf", \
+        "--stats_temp_directory=/tmp",                            \
+        "--listen_addresses=0.0.0.0"                              \
 ]
