@@ -7,7 +7,8 @@ CREATE DATABASE kafka;
 CREATE EXTENSION kafka_fdw;
 
 CREATE SERVER s_kafka
-FOREIGN DATA WRAPPER kafka_fdw;
+FOREIGN DATA WRAPPER kafka_fdw
+OPTIONS (host 'kafka');
 
 CREATE FOREIGN TABLE t_kafka
 (
@@ -28,3 +29,11 @@ SELECT
 FROM
     t_kafka
 LIMIT 1;
+
+SELECT
+    i_offset,
+    t_value
+FROM
+    t_kafka
+OFFSET 100
+LIMIT 100;
