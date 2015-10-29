@@ -49,7 +49,8 @@ PG_MODULE_MAGIC;
 #define DEFAULT_OFFSET RD_KAFKA_OFFSET_BEGINNING /* -2 */
 #define DEFAULT_BATCH_SIZE 30000
 
-#define CONSUME_TIMEOUT 100
+// TODO: at the moment I have no idea how to distinguish between no messages and timeout
+#define CONSUME_TIMEOUT 1000
 #define KAFKA_MAX_ERR_MSG 200
 
 #define RELSIZE_ROWS_ESTIMATE 30000
