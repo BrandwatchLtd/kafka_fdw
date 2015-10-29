@@ -18,7 +18,8 @@ SERVER s_kafka
 OPTIONS
 (
     topic 'test',
-    batch_size '30000'
+    batch_size '30000',
+    offset '-2'
 );
 
 SELECT
