@@ -1,3 +1,5 @@
+\timing off
+
 DROP DATABASE IF EXISTS kafka;
 CREATE DATABASE kafka;
 \c kafka
