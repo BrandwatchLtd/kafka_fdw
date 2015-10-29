@@ -37,3 +37,23 @@ FROM
     t_kafka
 OFFSET 100
 LIMIT 100;
+
+SELECT
+    t_value
+FROM
+    t_kafka
+OFFSET 250000
+LIMIT 5;
+
+SELECT
+    i_offset
+FROM
+    t_kafka
+LIMIT 5;
+
+EXPLAIN SELECT
+    i_offset,
+    t_value
+FROM
+    t_kafka
+LIMIT 5;

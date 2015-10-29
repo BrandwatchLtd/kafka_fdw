@@ -1,0 +1,140 @@
+Timing is off.
+DROP DATABASE
+CREATE DATABASE
+You are now connected to database "kafka" as user "postgres".
+CREATE EXTENSION
+CREATE SERVER
+CREATE FOREIGN TABLE
+ i_offset │                              t_value                              
+──────────┼───────────────────────────────────────────────────────────────────
+        0 │ {"sex": "boy", "percent": 0.081541, "name": "John", "year": 1880}
+(1 row)
+
+ i_offset │                                 t_value                                  
+──────────┼──────────────────────────────────────────────────────────────────────────
+      101 │ {"sex": "boy", "percent": 0.001106, "name": "Dave", "year": 1880}
+      102 │ {"sex": "boy", "percent": 0.001098, "name": "Anthony", "year": 1880}
+      103 │ {"sex": "boy", "percent": 0.001089, "name": "Eddie", "year": 1880}
+      104 │ {"sex": "boy", "percent": 0.001081, "name": "Amos", "year": 1880}
+      105 │ {"sex": "boy", "percent": 0.001081, "name": "Dennis", "year": 1880}
+      106 │ {"sex": "boy", "percent": 0.001073, "name": "Clifford", "year": 1880}
+      107 │ {"sex": "boy", "percent": 0.001047, "name": "Leroy", "year": 1880}
+      108 │ {"sex": "boy", "percent": 0.001039, "name": "Wesley", "year": 1880}
+      109 │ {"sex": "boy", "percent": 0.00103, "name": "Alonzo", "year": 1880}
+      110 │ {"sex": "boy", "percent": 0.00103, "name": "Garfield", "year": 1880}
+      111 │ {"sex": "boy", "percent": 0.001013, "name": "Franklin", "year": 1880}
+      112 │ {"sex": "boy", "percent": 0.001005, "name": "Emil", "year": 1880}
+      113 │ {"sex": "boy", "percent": 0.000997, "name": "Leon", "year": 1880}
+      114 │ {"sex": "boy", "percent": 0.000963, "name": "Nathan", "year": 1880}
+      115 │ {"sex": "boy", "percent": 0.000954, "name": "Harold", "year": 1880}
+      116 │ {"sex": "boy", "percent": 0.000954, "name": "Matthew", "year": 1880}
+      117 │ {"sex": "boy", "percent": 0.000946, "name": "Levi", "year": 1880}
+      118 │ {"sex": "boy", "percent": 0.000937, "name": "Moses", "year": 1880}
+      119 │ {"sex": "boy", "percent": 0.000929, "name": "Everett", "year": 1880}
+      120 │ {"sex": "boy", "percent": 0.000921, "name": "Lester", "year": 1880}
+      121 │ {"sex": "boy", "percent": 0.000912, "name": "Winfield", "year": 1880}
+      122 │ {"sex": "boy", "percent": 0.000878, "name": "Adam", "year": 1880}
+      123 │ {"sex": "boy", "percent": 0.000878, "name": "Lloyd", "year": 1880}
+      124 │ {"sex": "boy", "percent": 0.000878, "name": "Mack", "year": 1880}
+      125 │ {"sex": "boy", "percent": 0.00087, "name": "Fredrick", "year": 1880}
+      126 │ {"sex": "boy", "percent": 0.00087, "name": "Jay", "year": 1880}
+      127 │ {"sex": "boy", "percent": 0.00087, "name": "Jess", "year": 1880}
+      128 │ {"sex": "boy", "percent": 0.00087, "name": "Melvin", "year": 1880}
+      129 │ {"sex": "boy", "percent": 0.00087, "name": "Noah", "year": 1880}
+      130 │ {"sex": "boy", "percent": 0.000861, "name": "Aaron", "year": 1880}
+      131 │ {"sex": "boy", "percent": 0.000861, "name": "Alvin", "year": 1880}
+      132 │ {"sex": "boy", "percent": 0.000861, "name": "Norman", "year": 1880}
+      133 │ {"sex": "boy", "percent": 0.000853, "name": "Gilbert", "year": 1880}
+      134 │ {"sex": "boy", "percent": 0.000845, "name": "Elijah", "year": 1880}
+      135 │ {"sex": "boy", "percent": 0.000845, "name": "Victor", "year": 1880}
+      136 │ {"sex": "boy", "percent": 0.000836, "name": "Gus", "year": 1880}
+      137 │ {"sex": "boy", "percent": 0.000836, "name": "Nelson", "year": 1880}
+      138 │ {"sex": "boy", "percent": 0.000828, "name": "Jasper", "year": 1880}
+      139 │ {"sex": "boy", "percent": 0.000828, "name": "Silas", "year": 1880}
+      140 │ {"sex": "boy", "percent": 0.000819, "name": "Christopher", "year": 1880}
+      141 │ {"sex": "boy", "percent": 0.000811, "name": "Jake", "year": 1880}
+      142 │ {"sex": "boy", "percent": 0.000802, "name": "Mike", "year": 1880}
+      143 │ {"sex": "boy", "percent": 0.000794, "name": "Percy", "year": 1880}
+      144 │ {"sex": "boy", "percent": 0.000785, "name": "Adolph", "year": 1880}
+      145 │ {"sex": "boy", "percent": 0.000785, "name": "Maurice", "year": 1880}
+      146 │ {"sex": "boy", "percent": 0.000777, "name": "Cornelius", "year": 1880}
+      147 │ {"sex": "boy", "percent": 0.000777, "name": "Felix", "year": 1880}
+      148 │ {"sex": "boy", "percent": 0.000777, "name": "Reuben", "year": 1880}
+      149 │ {"sex": "boy", "percent": 0.000769, "name": "Wallace", "year": 1880}
+      150 │ {"sex": "boy", "percent": 0.00076, "name": "Claud", "year": 1880}
+      151 │ {"sex": "boy", "percent": 0.00076, "name": "Roscoe", "year": 1880}
+      152 │ {"sex": "boy", "percent": 0.000752, "name": "Sylvester", "year": 1880}
+      153 │ {"sex": "boy", "percent": 0.000743, "name": "Earnest", "year": 1880}
+      154 │ {"sex": "boy", "percent": 0.000743, "name": "Hiram", "year": 1880}
+      155 │ {"sex": "boy", "percent": 0.000743, "name": "Otis", "year": 1880}
+      156 │ {"sex": "boy", "percent": 0.000743, "name": "Simon", "year": 1880}
+      157 │ {"sex": "boy", "percent": 0.000743, "name": "Willard", "year": 1880}
+      158 │ {"sex": "boy", "percent": 0.000726, "name": "Irvin", "year": 1880}
+      159 │ {"sex": "boy", "percent": 0.000726, "name": "Mark", "year": 1880}
+      160 │ {"sex": "boy", "percent": 0.000709, "name": "Jose", "year": 1880}
+      161 │ {"sex": "boy", "percent": 0.000693, "name": "Wilbur", "year": 1880}
+      162 │ {"sex": "boy", "percent": 0.000684, "name": "Abraham", "year": 1880}
+      163 │ {"sex": "boy", "percent": 0.000684, "name": "Virgil", "year": 1880}
+      164 │ {"sex": "boy", "percent": 0.000667, "name": "Clinton", "year": 1880}
+      165 │ {"sex": "boy", "percent": 0.000667, "name": "Elbert", "year": 1880}
+      166 │ {"sex": "boy", "percent": 0.000667, "name": "Leslie", "year": 1880}
+      167 │ {"sex": "boy", "percent": 0.000659, "name": "Marshall", "year": 1880}
+      168 │ {"sex": "boy", "percent": 0.000659, "name": "Owen", "year": 1880}
+      169 │ {"sex": "boy", "percent": 0.000659, "name": "Wiley", "year": 1880}
+      170 │ {"sex": "boy", "percent": 0.00065, "name": "Anton", "year": 1880}
+      171 │ {"sex": "boy", "percent": 0.00065, "name": "Morris", "year": 1880}
+      172 │ {"sex": "boy", "percent": 0.000633, "name": "Manuel", "year": 1880}
+      173 │ {"sex": "boy", "percent": 0.000633, "name": "Phillip", "year": 1880}
+      174 │ {"sex": "boy", "percent": 0.000625, "name": "Augustus", "year": 1880}
+      175 │ {"sex": "boy", "percent": 0.000625, "name": "Emmett", "year": 1880}
+      176 │ {"sex": "boy", "percent": 0.000617, "name": "Eli", "year": 1880}
+      177 │ {"sex": "boy", "percent": 0.000617, "name": "Nicholas", "year": 1880}
+      178 │ {"sex": "boy", "percent": 0.000608, "name": "Wilson", "year": 1880}
+      179 │ {"sex": "boy", "percent": 0.000591, "name": "Alva", "year": 1880}
+      180 │ {"sex": "boy", "percent": 0.000591, "name": "Harley", "year": 1880}
+      181 │ {"sex": "boy", "percent": 0.000591, "name": "Newton", "year": 1880}
+      182 │ {"sex": "boy", "percent": 0.000591, "name": "Timothy", "year": 1880}
+      183 │ {"sex": "boy", "percent": 0.000583, "name": "Marvin", "year": 1880}
+      184 │ {"sex": "boy", "percent": 0.000583, "name": "Ross", "year": 1880}
+      185 │ {"sex": "boy", "percent": 0.000574, "name": "Curtis", "year": 1880}
+      186 │ {"sex": "boy", "percent": 0.000566, "name": "Edmund", "year": 1880}
+      187 │ {"sex": "boy", "percent": 0.000557, "name": "Jeff", "year": 1880}
+      188 │ {"sex": "boy", "percent": 0.000549, "name": "Elias", "year": 1880}
+      189 │ {"sex": "boy", "percent": 0.000549, "name": "Harrison", "year": 1880}
+      190 │ {"sex": "boy", "percent": 0.000549, "name": "Stanley", "year": 1880}
+      191 │ {"sex": "boy", "percent": 0.000541, "name": "Columbus", "year": 1880}
+      192 │ {"sex": "boy", "percent": 0.000541, "name": "Lon", "year": 1880}
+      193 │ {"sex": "boy", "percent": 0.000541, "name": "Ora", "year": 1880}
+      194 │ {"sex": "boy", "percent": 0.000532, "name": "Ollie", "year": 1880}
+      195 │ {"sex": "boy", "percent": 0.000532, "name": "Russell", "year": 1880}
+      196 │ {"sex": "boy", "percent": 0.000524, "name": "Pearl", "year": 1880}
+      197 │ {"sex": "boy", "percent": 0.000524, "name": "Solomon", "year": 1880}
+      198 │ {"sex": "boy", "percent": 0.000515, "name": "Arch", "year": 1880}
+      199 │ {"sex": "boy", "percent": 0.000507, "name": "Asa", "year": 1880}
+      200 │ {"sex": "boy", "percent": 0.000507, "name": "Clayton", "year": 1880}
+(100 rows)
+
+                                t_value                                
+───────────────────────────────────────────────────────────────────────
+ {"sex": "girl", "percent": 0.000807, "name": "Camryn", "year": 2001}
+ {"sex": "girl", "percent": 0.000804, "name": "Valeria", "year": 2001}
+ {"sex": "girl", "percent": 0.0008, "name": "Jazmin", "year": 2001}
+ {"sex": "girl", "percent": 0.0008, "name": "Delaney", "year": 2001}
+ {"sex": "girl", "percent": 0.000785, "name": "Joanna", "year": 2001}
+(5 rows)
+
+ i_offset 
+──────────
+   250206
+   250207
+   250208
+   250209
+   250210
+(5 rows)
+
+                               QUERY PLAN                               
+────────────────────────────────────────────────────────────────────────
+ Limit  (cost=0.00..0.00 rows=5 width=2000)
+   ->  Foreign Scan on t_kafka  (cost=0.00..0.00 rows=30000 width=2000)
+(2 rows)
+
