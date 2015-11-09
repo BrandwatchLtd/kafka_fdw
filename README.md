@@ -1,5 +1,4 @@
 # Kafka Foreign Data Wrapper for PostgreSQL
-# Kafka Foreign Data Wrapper for PostgreSQL
 
 This provides a foreign data wrapper for Kafka which allows it to be treated as
 a table. Each select from the table will read new rows from the Kafka Queue.
@@ -17,7 +16,7 @@ You do this as follows:
 
     docker-compose build
     docker-compose up
-    docker exec -ti kafka_fdw psql template1
+    docker exec -ti postgres psql template1
 
 You can also build this normally:
 

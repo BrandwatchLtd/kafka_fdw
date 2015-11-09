@@ -1,0 +1,100 @@
+#!/bin/sh
+
+# This launches the docker containers and then runs the test SQL through the
+# database.
+
+THIS_FILE="`readlink -f $0`"
+ROOT_DIRECTORY="`dirname \"${THIS_FILE}\"`"
+SQL_INPUT="${ROOT_DIRECTORY}/sql/kafka_fdw.sql"
+SQL_OUTPUT="${ROOT_DIRECTORY}/expected/kafka_fdw.out"
+TEST_OUTPUT="/tmp/test_output.out"
+
+perform_tests () {
+    validate
+
+    launch_docker_compose
+    wait_for_message_load
+
+    sleep 5
+
+    run_sql_test > "${TEST_OUTPUT}"
+    diff "${TEST_OUTPUT}" "${SQL_OUTPUT}"
+    STATUS=$?
+
+    halt_docker_compose
+
+    exit $STATUS
+}
+
+error () {
+    printf "%s\n" $@ >&2
+    exit 1
+}
+
+validate () {
+    if ! validate_docker
+    then
+        error "The docker command is not available"
+    fi
+
+    if ! validate_user
+    then
+        error "The current user is not a member of the docker group"
+    fi
+
+    if ! validate_docker_compose
+    then
+        error "The docker-compose command is not available"
+    fi
+}
+
+validate_docker () {
+    which docker >/dev/null
+}
+
+validate_user () {
+    groups | grep docker >/dev/null
+}
+
+validate_docker_compose () {
+    which docker-compose >/dev/null
+}
+
+launch_docker_compose () {
+    (
+        cd "${ROOT_DIRECTORY}"
+
+        docker-compose stop
+        docker-compose rm --force
+        docker-compose up -d
+    )
+}
+
+wait_for_message_load () {
+    docker logs loader | fgrep --max-count=1 "Loaded all messages"
+}
+
+halt_docker_compose () {
+    (
+        cd "${ROOT_DIRECTORY}"
+
+        docker-compose stop
+    )
+}
+
+run_sql_test () {
+    psql --host=localhost           \
+        --port=`find_postgres_port` \
+        --username=postgres < "${SQL_INPUT}"
+}
+
+find_postgres_port () {
+    (
+        cd "${ROOT_DIRECTORY}"
+        docker inspect                                                                    \
+            --format '{{ (index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort }}' \
+            postgres
+    )
+}
+
+perform_tests

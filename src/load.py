@@ -32,7 +32,7 @@ class KafkaHandler(object):
 
     def load_messages(self):
         with open('/data.json', 'r') as handle:
-            self.producer.send_messages(self.topic, *handle.readlines())
+            self.producer.send_messages(self.topic, *handle.read().splitlines())
 
 
 if __name__ == '__main__':
